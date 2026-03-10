@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gerador de Card — Monitoramento de Reservatórios</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <div class="logo">💧</div>
+      <h1>Gerador de Card — Monitoramento de Reservatórios</h1>
+      <p class="tagline">Use Google Sheets ou envie um CSV. Gere o card em PNG ou JPG.</p>
+    </header>
+
+    <main class="main">
+      <section class="card fonte">
+        <h2>Fonte de dados</h2>
+        <div class="fonte-tabs">
+          <button type="button" class="tab active" data-source="sheets">Google Sheets</button>
+          <button type="button" class="tab" data-source="csv">Upload CSV</button>
+        </div>
+
+        <div id="panel-sheets" class="panel active">
+          <label for="sheet-url">Link ou ID da planilha</label>
+          <input type="text" id="sheet-url" placeholder="https://docs.google.com/spreadsheets/d/...">
+          <label for="sheet-gid">GID (aba)</label>
+          <input type="text" id="sheet-gid" value="0" placeholder="0">
+          <button type="button" id="btn-load-sheets" class="btn btn-primary">Carregar dados</button>
+        </div>
+
+        <div id="panel-csv" class="panel">
+          <label for="csv-file">Arquivo .csv</label>
+          <input type="file" id="csv-file" accept=".csv">
+          <button type="button" id="btn-process-csv" class="btn btn-primary">Processar CSV</button>
+        </div>
+
+        <p id="fonte-status" class="status" aria-live="polite"></p>
+      </section>
+
+      <section class="card opcoes">
+        <h2>Opções do card</h2>
+        <div class="opcoes-grid">
+          <div class="field">
+            <label for="mode">Formato</label>
+            <select id="mode">
+              <option value="Feed (1080x1350)">Feed (1080×1350)</option>
+              <option value="Stories (1080x1920)">Stories (1080×1920)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="ordenar">Ordenação</label>
+            <select id="ordenar">
+              <option value="Manter ordem">Manter ordem</option>
+              <option value="Maior variação absoluta">Maior variação absoluta</option>
+              <option value="Maior variação positiva">Maior variação positiva</option>
+              <option value="Maior variação negativa">Maior variação negativa</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="formato">Saída</label>
+            <select id="formato">
+              <option value="PNG">PNG</option>
+              <option value="JPG">JPG</option>
+            </select>
+          </div>
+          <div class="field checkbox-field">
+            <label>
+              <input type="checkbox" id="convert-m3" checked>
+              Converter m³ bruto para milhões/m³
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <section class="card kpis" id="section-kpis" hidden>
+        <h2>Resumo</h2>
+        <div class="kpis-grid">
+          <div class="kpi"><span class="kpi-value" id="kpi-total">0</span><span class="kpi-label">Total</span></div>
+          <div class="kpi up"><span class="kpi-value" id="kpi-up">0</span><span class="kpi-label">Var. +</span></div>
+          <div class="kpi down"><span class="kpi-value" id="kpi-down">0</span><span class="kpi-label">Var. −</span></div>
+          <div class="kpi vertendo"><span class="kpi-value" id="kpi-vertendo">0</span><span class="kpi-label">Vertendo</span></div>
+          <div class="kpi zero"><span class="kpi-value" id="kpi-zero">0</span><span class="kpi-label">Sem var.</span></div>
+        </div>
+      </section>
+
+      <section class="card acao">
+        <button type="button" id="btn-generate" class="btn btn-generate" disabled>Gerar imagem</button>
+        <p id="generate-status" class="status" aria-live="polite"></p>
+      </section>
+
+      <section class="card preview" id="section-preview" hidden>
+        <h2>Prévia</h2>
+        <div class="preview-wrap">
+          <img id="preview-img" alt="Prévia do card" />
+        </div>
+        <a id="btn-download" class="btn btn-download" download style="display: none;">Baixar imagem</a>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <p>GF Informática · Para Feed com layout, use <code>base_card.png</code> na pasta do projeto.</p>
+    </footer>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
