@@ -113,15 +113,26 @@ def fmt_m_2dp_dot(v) -> str:
         return "N/A"
 
 
+def _fmt_num_br(x: float) -> str:
+    """Formata número com separador de milhar PT-BR (vírgula decimal)."""
+    return f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
 def fmt_milhoes_br(v, convert_raw_m3_to_millions: bool) -> str:
+    """Formata volume em milhões/m³ ou bilhões/m³ (se > 999 milhões)."""
     if pd.isna(v):
         return "N/A"
     try:
         val = float(v)
         if convert_raw_m3_to_millions:
-            val = val / 1_000_000.0
-        s = f"{val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-        return f"{s} milhões/m³"
+            val_millions = val / 1_000_000.0
+            if val_millions > 999:
+                return f"{_fmt_num_br(val_millions / 1000.0)} bilhões/m³"
+            return f"{_fmt_num_br(val_millions)} milhões/m³"
+        # Raw m³
+        if val > 999_000_000:
+            return f"{_fmt_num_br(val / 1_000_000_000.0)} bilhões/m³"
+        return f"{_fmt_num_br(val)} milhões/m³"
     except Exception:
         return "N/A"
 
@@ -238,6 +249,7 @@ def process_df(df_raw: pd.DataFrame):
     c_mun = col("MUNICÍPIO") or col("MUNICIPIO")
     c_var_m = col("VARIAÇÃO_M") or col("VARIAÇÃO EM M") or col("VARIACAO EM M")
     c_var_m3 = col("VARIAÇÃO_M³") or col("VARIAÇÃO EM M³") or col("VARIACAO EM M3") or col("VARIAÇÃO_M3")
+    c_capacidade = col("CAPACIDADE (M³)") or col("CAPACIDADE (M3)") or col("CAPACIDADE TOTAL (M³)") or col("CAPACIDADE TOTAL (M3)")
     c_vol_atual = col("SITUAÇÃO ATUAL") or col("VOLUME ATUAL")
     c_pct_atual = col("PERCENTUAL ATUAL") or col("PERCENTUAL")
     c_falta_sangrar = col("FALTA P/ SANGRAR") or col("FALTA P SANGRAR")
@@ -257,6 +269,7 @@ def process_df(df_raw: pd.DataFrame):
         "nivel_atual": to_num_series(df_raw[date_atu]) if date_atu in df_raw.columns else pd.Series([None] * len(df_raw)),
         "variacao_m": to_num_series(df_raw[c_var_m]) if c_var_m else pd.Series([None] * len(df_raw)),
         "variacao_m3": to_num_series(df_raw[c_var_m3]) if c_var_m3 else pd.Series([None] * len(df_raw)),
+        "capacidade_m3": to_num_series(df_raw[c_capacidade]) if c_capacidade else pd.Series([None] * len(df_raw)),
         "volume_atual_m3": to_num_series(df_raw[c_vol_atual]) if c_vol_atual else pd.Series([None] * len(df_raw)),
         "percentual": to_num_series(df_raw[c_pct_atual]) if c_pct_atual else pd.Series([None] * len(df_raw)),
         "falta_sangrar": to_num_series(df_raw[c_falta_sangrar]) if c_falta_sangrar else pd.Series([None] * len(df_raw)),
@@ -271,7 +284,7 @@ def process_df(df_raw: pd.DataFrame):
     if df["variacao_m"].isna().all():
         df["variacao_m"] = (df["nivel_atual"] - df["nivel_anterior"]).round(2)
 
-    for c in ["variacao_m", "variacao_m3", "volume_atual_m3", "percentual"]:
+    for c in ["variacao_m", "variacao_m3", "capacidade_m3", "volume_atual_m3", "percentual"]:
         df[c] = pd.to_numeric(df[c], errors="coerce")
 
     info = {"periodo": {"anterior": str(date_ant).strip(), "atual": str(date_atu).strip()}, "colunas": cols}
@@ -350,6 +363,140 @@ def draw_kpis_grid(draw, x, y, total, up, down, vertendo, sem_var, big=False):
     return y + h
 
 
+def _safe_sum(series: pd.Series | None) -> float:
+    if series is None:
+        return 0.0
+    try:
+        return float(pd.to_numeric(series, errors="coerce").fillna(0).sum())
+    except Exception:
+        return 0.0
+
+
+def draw_global_kpis_and_pie(draw, x, y, w, h, df_all: pd.DataFrame,
+                              convert_raw_m3_to_millions: bool, big: bool = True):
+    """Painel de KPIs globais + donut chart.
+    Layout:  col1 (Capacidade + Volume Atual) | col2 (Evolução no Período) | col3 (Percentual Atual)
+    """
+    cap_total  = max(0.0, _safe_sum(df_all.get("capacidade_m3")))
+    vol_total  = max(0.0, _safe_sum(df_all.get("volume_atual_m3")))
+    aporte_total = _safe_sum(df_all.get("variacao_m3"))
+
+    # Paleta do projeto
+    C_SKY    = (56,  189, 248, 255)   # --accent
+    C_TEAL   = (34,  211, 238, 255)   # azul-ciano
+    C_ORANGE = (251, 146,  60, 255)   # aporte positivo
+    C_RED    = (248, 113, 113, 255)   # aporte negativo
+    C_SURF   = (30,   41,  59, 255)   # --surface
+    C_MUTED  = (100, 116, 139, 255)
+    C_TEXT   = (241, 245, 249, 255)
+    C_TITLE  = (255, 255, 255, 255)  # títulos dos KPIs em branco
+    C_RING_EMPTY = (30, 64, 175, 220)
+
+    gap_col = 18
+    col_w   = (w - 2 * gap_col) // 3
+
+    pad_i   = 14
+    bar_top = 5   # altura da barra colorida no topo de cada card
+    r_card  = 18
+
+    def _card_bg(cx, cy, cw, ch, accent):
+        draw_rounded_rect(draw, cx, cy, cw, ch, r_card,
+                          fill=C_SURF, outline=(*accent[:3], 180), width=2)
+        # barra de acento no topo
+        draw_rounded_rect(draw, cx + 2, cy, cw - 4, bar_top, 3,
+                          fill=accent, outline=None, width=0)
+
+    f_lbl_sz = 17 if big else 15
+    f_val_sz = 26 if big else 22
+    f_sm_sz  = 14 if big else 13
+
+    # ── COLUNA 1: Capacidade (cima) + Volume Atual (baixo) ─────────────────────
+    col1_x  = x
+    sub_gap = 10
+    sub_h   = (h - sub_gap) // 2
+    sub_h2  = h - sub_h - sub_gap   # garante que somam h exato
+
+    def _draw_stacked_kpi(cx, cy, cw, ch, label, value_str, accent):
+        _card_bg(cx, cy, cw, ch, accent)
+        f_l = get_font(f_lbl_sz, False)
+        f_v = get_font(f_val_sz, True)
+        draw.text((cx + pad_i, cy + bar_top + 8),
+                  norm_txt(label.upper()), fill=C_TITLE, font=f_l)
+        val_y = cy + bar_top + 8 + f_l.size + 6
+        draw.text((cx + pad_i, val_y), norm_txt(value_str), fill=accent, font=f_v)
+
+    cap_txt    = fmt_milhoes_br(cap_total, convert_raw_m3_to_millions)
+    vol_txt    = fmt_milhoes_br(vol_total, convert_raw_m3_to_millions)
+    _draw_stacked_kpi(col1_x, y,               col_w, sub_h,  "Capacidade da Bacia", cap_txt, C_SKY)
+    _draw_stacked_kpi(col1_x, y + sub_h + sub_gap, col_w, sub_h2, "Volume Atual",  vol_txt, C_TEAL)
+
+    # ── COLUNA 2: Evolução no Período (altura total) ───────────────────────────
+    col2_x = x + col_w + gap_col
+    aporte_color = C_ORANGE if aporte_total >= 0 else C_RED
+    aporte_txt   = fmt_milhoes_br(aporte_total, convert_raw_m3_to_millions)
+
+    _card_bg(col2_x, y, col_w, h, aporte_color)
+
+    f_lbl2 = get_font(f_lbl_sz, False)
+    draw.text((col2_x + pad_i, y + bar_top + 8),
+              norm_txt("EVOLUÇÃO NO PERÍODO"), fill=C_TITLE, font=f_lbl2)
+
+    f_val2 = get_font(f_val_sz + 6, True)
+    val_cy = y + h // 2 + 6
+    draw.text((col2_x + col_w // 2, val_cy),
+              norm_txt(aporte_txt), fill=aporte_color, font=f_val2, anchor="mm")
+
+    # ── COLUNA 3: Percentual Atual (Donut chart) ───────────────────────────────
+    col3_x = x + 2 * (col_w + gap_col)
+    _card_bg(col3_x, y, col_w, h, C_SKY)
+
+    f_lbl3 = get_font(f_lbl_sz, False)
+    draw.text((col3_x + pad_i, y + bar_top + 8),
+              norm_txt("PERCENTUAL ATUAL"), fill=C_TITLE, font=f_lbl3)
+
+    if cap_total > 0:
+        filled = min(vol_total, cap_total)
+        pct_preench = 100.0 * (filled / cap_total)
+
+        margin  = 18
+        label_h = bar_top + 8 + f_lbl3.size + 10   # espaço do label no topo
+        avail_h = h - label_h - margin
+        dia     = min(col_w - 2 * margin, avail_h)
+        dia     = max(40, dia)
+
+        cx_d = col3_x + col_w // 2
+        cy_d = y + label_h + avail_h // 2
+
+        r_out  = dia // 2
+        r_hole = int(r_out * 0.58)
+
+        # anel vazio (capacidade total)
+        draw.ellipse([cx_d - r_out, cy_d - r_out, cx_d + r_out, cy_d + r_out],
+                     fill=C_RING_EMPTY, outline=None)
+
+        # arco preenchido (situação atual)
+        if filled > 0:
+            draw.pieslice([cx_d - r_out, cy_d - r_out, cx_d + r_out, cy_d + r_out],
+                          start=-90.0, end=-90.0 + 360.0 * (filled / cap_total),
+                          fill=C_SKY, outline=None)
+
+        # buraco central (donut)
+        draw.ellipse([cx_d - r_hole, cy_d - r_hole, cx_d + r_hole, cy_d + r_hole],
+                     fill=C_SURF, outline=None)
+
+        # borda sutil do buraco
+        draw.ellipse([cx_d - r_hole, cy_d - r_hole, cx_d + r_hole, cy_d + r_hole],
+                     fill=None, outline=(*C_SKY[:3], 60), width=2)
+
+        # % no centro
+        f_pct_big = get_font(f_val_sz + 4, True)
+        f_pct_sub = get_font(f_sm_sz, False)
+        draw.text((cx_d, cy_d - 4), norm_txt(f"{pct_preench:.2f}%"),
+                  fill=C_TEXT, font=f_pct_big, anchor="mm")
+        draw.text((cx_d, cy_d + f_pct_big.size // 2 + 4),
+                  norm_txt("da capacidade"), fill=C_MUTED, font=f_pct_sub, anchor="mm")
+
+
 def draw_bacia_pill(draw, right_x, y, text_value, big=False, min_left_x=70, max_w=None):
     outline = (147, 197, 253, 255)
     bg = (255, 255, 255, 255)
@@ -400,11 +547,27 @@ def generate_pages(df_all: pd.DataFrame, mode: str, date_anterior: str, date_atu
     ordered = ordered.drop_duplicates(subset=["nome"], keep="first").reset_index(drop=True)
 
     total_rows = len(ordered)
-    per_page = 15
-    n_pages = max(1, (total_rows + per_page - 1) // per_page)
+    # Página 1 tem espaço para 12 cards (1 linha reservada para KPIs globais).
+    # Páginas seguintes têm 15 cards (grade completa 3×5).
+    PAGE1_CARDS = 12
+    PAGE_N_CARDS = 15
+
+    if total_rows == 0:
+        slices = [ordered]
+    else:
+        slices = []
+        remaining = ordered
+        # Página 1
+        slices.append(remaining.iloc[:PAGE1_CARDS].reset_index(drop=True))
+        remaining = remaining.iloc[PAGE1_CARDS:].reset_index(drop=True)
+        # Páginas 2+
+        while len(remaining) > 0:
+            slices.append(remaining.iloc[:PAGE_N_CARDS].reset_index(drop=True))
+            remaining = remaining.iloc[PAGE_N_CARDS:].reset_index(drop=True)
+
+    n_pages = len(slices)
     pages = []
-    for p in range(n_pages):
-        slice_df = ordered.iloc[p * per_page : (p + 1) * per_page].reset_index(drop=True)
+    for p, slice_df in enumerate(slices):
         img = _render_page(
             df_all=df_all,
             ordered_slice=slice_df,
@@ -497,6 +660,25 @@ def _render_page(df_all: pd.DataFrame, ordered_slice: pd.DataFrame, mode: str,
 
     ordered = ordered_slice
 
+    # Na primeira página, usamos a área do primeiro "andar" de cards
+    # para mostrar os KPIs globais + donut chart.
+    first_row_y = grid_y
+    if page_num == 1:
+        draw_global_kpis_and_pie(
+            draw=draw,
+            x=grid_x,
+            y=first_row_y,
+            w=grid_w,
+            h=card_h,
+            df_all=df_all,
+            convert_raw_m3_to_millions=convert_raw_m3_to_millions,
+            big=big,
+        )
+        # Cards começam a partir da segunda linha visual (12 cards na pg1)
+        cards_start_y = first_row_y + card_h + gap_y
+    else:
+        cards_start_y = grid_y
+
     def draw_item(ix: int, row: pd.Series, x: int, y: int):
         nome = norm_txt(str(row.get("nome", "N/A"))).strip()
         municipio = norm_txt(str(row.get("municipio", "N/A"))).strip()
@@ -523,8 +705,9 @@ def _render_page(df_all: pd.DataFrame, ordered_slice: pd.DataFrame, mode: str,
         draw_rounded_rect(draw, x, y, card_w, card_h, 22, fill=bg, outline=bd, width=2)
         rank_w = 44
         draw_rounded_rect(draw, x + card_w - rank_w - 10, y + 10, rank_w, 30, 14, fill=bd, outline=None, width=0)
-        # número global do card (considerando a página)
-        global_ix = (page_num - 1) * 15 + ix + 1
+        # número global: pg1 = 1..12, pg2 = 13..27, pg3 = 28..42, …
+        page_offset = 0 if page_num == 1 else 12 + (page_num - 2) * 15
+        global_ix = page_offset + ix + 1
         draw.text((x + card_w - 10 - rank_w / 2, y + 25), norm_txt(str(global_ix)), fill=(255, 255, 255, 255), font=get_font(16, True), anchor="mm")
         name_area_w = card_w - 28 - 54
         f_name = get_font(f_name_base, True)
@@ -572,7 +755,7 @@ def _render_page(df_all: pd.DataFrame, ordered_slice: pd.DataFrame, mode: str,
     for i in range(len(ordered)):
         ri, ci = i // cols_grid, i % cols_grid
         cx = grid_x + ci * (card_w + gap_x)
-        cy = grid_y + ri * (card_h + gap_y)
+        cy = cards_start_y + ri * (card_h + gap_y)
         draw_item(i, ordered.iloc[i], cx, cy)
 
     fonte_txt = build_fonte_gerencia(df_all)
