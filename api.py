@@ -36,9 +36,10 @@ from engine import (
 )
 
 # --------------- Configuração da app ---------------
-STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
-INDEX_HTML = os.path.join(STATIC_DIR, "index.html")
-ADMIN_HTML = os.path.join(STATIC_DIR, "admin.html")
+_BASE = Path(__file__).resolve().parent
+STATIC_DIR = _BASE / "static"
+INDEX_HTML = STATIC_DIR / "index.html"
+ADMIN_HTML = STATIC_DIR / "admin.html"
 
 router = APIRouter()
 
@@ -205,10 +206,11 @@ async def api_admin_me(username: str = Depends(get_admin_session)):
 
 
 @router.get("/admin")
+@router.get("/admin/")
 def admin_page():
     """Página de administração (login na própria página)."""
-    if os.path.isfile(ADMIN_HTML):
-        return FileResponse(ADMIN_HTML)
+    if ADMIN_HTML.is_file():
+        return FileResponse(str(ADMIN_HTML), media_type="text/html")
     return RedirectResponse("/")
 
 
@@ -222,13 +224,13 @@ def create_app():
     )
     app.include_router(router)
 
-    if os.path.isdir(STATIC_DIR):
-        app.mount("/static", StaticFiles(directory=STATIC_DIR, html=True), name="static")
+    if STATIC_DIR.is_dir():
+        app.mount("/static", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")
 
     @app.get("/")
     def index():
-        if os.path.isfile(INDEX_HTML):
-            return FileResponse(INDEX_HTML)
+        if INDEX_HTML.is_file():
+            return FileResponse(str(INDEX_HTML), media_type="text/html")
         return {"message": "Card Reservatórios API", "docs": "/docs"}
 
     return app
