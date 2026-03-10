@@ -461,7 +461,7 @@ def _render_page(df_all: pd.DataFrame, ordered_slice: pd.DataFrame, mode: str,
     total = int(len(df_all))
     vertendo = int(((df_all["percentual"] >= 100) & (~df_all["percentual"].isna())).sum()) if "percentual" in df_all.columns else 0
     up = int(((df_all["variacao_m"] > 0) & (df_all["percentual"] < 100) & (~df_all["variacao_m"].isna())).sum()) if "variacao_m" in df_all.columns and "percentual" in df_all.columns else 0
-    down = int(((df_all["variacao_m"] < 0) & (~df_all["variacao_m"].isna())).sum()) if "variacao_m" in df_all.columns else 0
+    down = int(((df_all["variacao_m"] < 0) & (~df_all["variacao_m"].isna()) & ((df_all["percentual"] < 100) | (df_all["percentual"].isna()))).sum()) if "variacao_m" in df_all.columns and "percentual" in df_all.columns else (int(((df_all["variacao_m"] < 0) & (~df_all["variacao_m"].isna())).sum()) if "variacao_m" in df_all.columns else 0)
     sem_var = int(((df_all["variacao_m"] == 0) & (df_all["percentual"] < 100) & (~df_all["variacao_m"].isna())).sum()) if "variacao_m" in df_all.columns and "percentual" in df_all.columns else 0
     bacia_txt = build_bacia_label(df_all)
 
