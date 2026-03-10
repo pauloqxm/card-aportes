@@ -400,6 +400,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 2rem;
+  overflow: visible;
 }
 
 .preview-page-block {
@@ -407,6 +408,16 @@ body {
   border-radius: 8px;
   padding: 1rem;
   text-align: center;
+  overflow: visible;
+  min-height: 120px;
+}
+
+.preview-page-block .preview-img-wrap {
+  overflow-x: auto;
+  overflow-y: visible;
+  -webkit-overflow-scrolling: touch;
+  margin: 0 -0.5rem 0.75rem;
+  padding: 0 0.5rem;
 }
 
 .preview-page-label {
@@ -420,10 +431,13 @@ body {
 
 .preview-page-img {
   max-width: 100%;
+  width: auto;
   height: auto;
+  max-height: 70vh;
   display: block;
-  margin: 0 auto 0.75rem;
+  margin: 0 auto;
   border-radius: 6px;
+  vertical-align: middle;
 }
 
 .preview-actions {
@@ -493,5 +507,27 @@ body {
   }
   .kpis-grid {
     grid-template-columns: repeat(2, 1fr);
+  }
+  .card.preview {
+    overflow: visible;
+    padding: 1rem;
+  }
+  .preview-pages {
+    gap: 1.5rem;
+  }
+  .preview-page-block {
+    padding: 0.75rem;
+  }
+  .preview-page-img {
+    max-height: 60vh;
+    min-width: min(100%, 320px);
+  }
+  .preview-actions {
+    flex-direction: column;
+    margin-top: 0.75rem;
+  }
+  .preview-actions .btn {
+    width: 100%;
+    justify-content: center;
   }
 }

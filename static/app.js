@@ -277,17 +277,21 @@
       const label = document.createElement('p');
       label.className = 'preview-page-label';
       label.textContent = p.label || `Página ${i + 1}`;
+      const imgWrap = document.createElement('div');
+      imgWrap.className = 'preview-img-wrap';
       const img = document.createElement('img');
       img.src = p.url;
       img.alt = p.label || `Página ${i + 1}`;
       img.className = 'preview-page-img';
+      img.loading = 'lazy';
+      imgWrap.appendChild(img);
       const dlBtn = document.createElement('a');
       dlBtn.href = p.url;
       dlBtn.download = `monitoramento_p${i + 1}.${p.ext}`;
       dlBtn.className = 'btn btn-download-secondary';
       dlBtn.textContent = `Baixar página ${i + 1}`;
       wrap.appendChild(label);
-      wrap.appendChild(img);
+      wrap.appendChild(imgWrap);
       wrap.appendChild(dlBtn);
       container.appendChild(wrap);
     });
@@ -303,7 +307,11 @@
         zipBtn.style.display = 'none';
       }
     }
-    el('section-preview').hidden = false;
+    const sectionPreview = el('section-preview');
+    if (sectionPreview) {
+      sectionPreview.hidden = false;
+      sectionPreview.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
   }
 
   function init() {
