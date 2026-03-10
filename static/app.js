@@ -274,17 +274,22 @@
   }
 
   async function loadFontes() {
+    const fonteSelect = el('fonte-gerencia');
+    if (!fonteSelect) return;
     try {
-      const res = await fetch(API + '/api/fontes');
-      if (!res.ok) return;
+      const res = await fetch(API + '/api/fontes', { credentials: 'same-origin' });
+      if (!res.ok) {
+        fonteSelect.innerHTML = '<option value="">Erro ao carregar gerências</option>';
+        return;
+      }
       const json = await res.json();
       const fontes = json.fontes || [];
       PRESET_SHEETS = {};
       fontes.forEach((f) => { PRESET_SHEETS[f.gerencia] = { url: f.url, gid: f.gid }; });
 
-      const fonteSelect = el('fonte-gerencia');
-      if (!fonteSelect) return;
-      fonteSelect.innerHTML = '<option value="">Selecione uma gerência...</option>';
+      fonteSelect.innerHTML = fontes.length
+        ? '<option value="">Selecione uma gerência...</option>'
+        : '<option value="">Nenhuma gerência (informe o link abaixo)</option>';
       fontes.forEach((f) => {
         const label = f.bacia ? `${f.gerencia} — ${f.bacia}` : f.gerencia;
         const opt = document.createElement('option');
@@ -293,7 +298,7 @@
         fonteSelect.appendChild(opt);
       });
     } catch (_) {
-      // silencioso: mantém select sem opções
+      fonteSelect.innerHTML = '<option value="">Erro ao carregar gerências</option>';
     }
   }
 
