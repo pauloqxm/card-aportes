@@ -4,27 +4,15 @@ Serve o frontend estático e expõe endpoints para dados e geração de imagem.
 """
 import os
 import csv
-import secrets
 from io import BytesIO
 from pathlib import Path
 
-from fastapi import APIRouter, Cookie, Depends, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse, RedirectResponse, Response
+from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 FONTES_CSV = Path(__file__).parent / "Fonde de dados.csv"
-
-# --------------- Admin: credenciais e sessões ---------------
-ADMIN_USER = os.environ.get("ADMIN_USER", "admin")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin")
-_admin_sessions = {}  # token -> username
-
-
-def get_admin_session(admin_session: str | None = Cookie(None)):
-    if not admin_session or admin_session not in _admin_sessions:
-        raise HTTPException(status_code=401, detail="Não autorizado.")
-    return _admin_sessions[admin_session]
 
 from engine import (
     df_to_json_safe,
@@ -39,7 +27,6 @@ from engine import (
 _BASE = Path(__file__).resolve().parent
 STATIC_DIR = _BASE / "static"
 INDEX_HTML = STATIC_DIR / "index.html"
-ADMIN_HTML = STATIC_DIR / "admin.html"
 
 router = APIRouter()
 
@@ -57,11 +44,6 @@ class GenerateRequest(BaseModel):
     ordenar: str = "Manter ordem"
     formato: str = "PNG"
     convert_raw_m3_to_millions: bool = True
-
-
-class AdminLoginRequest(BaseModel):
-    username: str = ""
-    password: str = ""
 
 
 # --------------- Endpoints ---------------
@@ -168,50 +150,6 @@ async def api_generate(body: GenerateRequest):
         media_type = "image/png"
     buf.seek(0)
     return Response(content=buf.getvalue(), media_type=media_type)
-
-
-# --------------- Admin (login obrigatório) ---------------
-@router.post("/api/admin/login")
-async def api_admin_login(body: AdminLoginRequest, response: Response):
-    """Login admin. Define cookie de sessão."""
-    user = (body.username or "").strip()
-    pwd = (body.password or "").strip()
-    if user != ADMIN_USER or pwd != ADMIN_PASSWORD:
-        raise HTTPException(status_code=401, detail="Usuário ou senha inválidos.")
-    token = secrets.token_urlsafe(32)
-    _admin_sessions[token] = user
-    response.set_cookie(
-        key="admin_session",
-        value=token,
-        httponly=True,
-        samesite="lax",
-        max_age=86400 * 7,
-    )
-    return {"ok": True, "username": user}
-
-
-@router.post("/api/admin/logout")
-async def api_admin_logout(response: Response, admin_session: str | None = Cookie(None)):
-    """Remove sessão e cookie."""
-    if admin_session and admin_session in _admin_sessions:
-        del _admin_sessions[admin_session]
-    response.delete_cookie("admin_session")
-    return {"ok": True}
-
-
-@router.get("/api/admin/me")
-async def api_admin_me(username: str = Depends(get_admin_session)):
-    """Retorna o usuário logado (para verificar sessão)."""
-    return {"username": username}
-
-
-@router.get("/admin")
-@router.get("/admin/")
-def admin_page():
-    """Página de administração (login na própria página)."""
-    if ADMIN_HTML.is_file():
-        return FileResponse(str(ADMIN_HTML), media_type="text/html")
-    return RedirectResponse("/")
 
 
 def create_app():
