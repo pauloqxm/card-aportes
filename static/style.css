@@ -40,9 +40,12 @@ body {
   margin-bottom: 2rem;
 }
 
-.logo {
-  font-size: 2.5rem;
-  margin-bottom: 0.5rem;
+.logo-img {
+  display: block;
+  width: 100%;
+  max-width: 180px;
+  height: auto;
+  margin: 0 auto 0.75rem;
 }
 
 .header h1 {
@@ -309,21 +312,37 @@ body {
 
 .footer {
   margin-top: 2rem;
-  padding-top: 1rem;
+  padding-top: 1.5rem;
   border-top: 1px solid var(--surface2);
   text-align: center;
   font-size: 0.85rem;
   color: var(--text-muted);
 }
 
-.footer code {
-  background: var(--surface2);
-  padding: 0.15rem 0.4rem;
-  border-radius: 4px;
+.footer p {
+  margin: 0.25rem 0;
+}
+
+.footer-dev {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.footer-org {
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.footer-addr,
+.footer-cnpj {
   font-size: 0.8rem;
+  color: var(--text-muted);
 }
 
 @media (max-width: 560px) {
+  .logo-img {
+    max-width: 140px;
+  }
   .opcoes-grid {
     grid-template-columns: 1fr;
   }
