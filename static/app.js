@@ -3,6 +3,7 @@
 
   const API = '';
   let state = { data: null, info: null };
+  let PRESET_SHEETS = {};
 
   const el = (id) => document.getElementById(id);
   const setStatus = (id, text, className = '') => {
@@ -41,6 +42,72 @@
     el('btn-generate').disabled = false;
   }
 
+  function getUniqueGerencia(data) {
+    const rows = Array.isArray(data) ? data : [];
+    const set = new Set();
+    rows.forEach((r) => {
+      const g = r.gerencia != null ? String(r.gerencia).trim() : '';
+      if (g && g.toLowerCase() !== 'n/a') set.add(g);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }
+
+  function getFilteredData() {
+    if (!state.data) return [];
+    const list = el('filter-gerencia-list');
+    if (!list) return state.data;
+    const checked = list.querySelectorAll('input[type="checkbox"]:checked');
+    if (checked.length === 0) return state.data;
+    const selected = new Set(Array.from(checked).map((c) => c.value));
+    return state.data.filter((r) => {
+      const g = r.gerencia != null ? String(r.gerencia).trim() : '';
+      return selected.has(g);
+    });
+  }
+
+  function renderFilterGerencia(data) {
+    const container = el('filter-gerencia-list');
+    const section = el('section-filter-gerencia');
+    if (!container || !section) return;
+    const gerenciaList = getUniqueGerencia(data);
+    if (gerenciaList.length === 0) {
+      section.hidden = true;
+      return;
+    }
+    section.hidden = false;
+    container.innerHTML = gerenciaList
+      .map(
+        (g) =>
+          `<label class="filtro-check"><input type="checkbox" name="gerencia" value="${escapeAttr(g)}" checked> ${escapeText(g)}</label>`
+      )
+      .join('');
+    container.querySelectorAll('input[name="gerencia"]').forEach((cb) => {
+      cb.addEventListener('change', () => {
+        showKpis(getFilteredData());
+      });
+    });
+  }
+
+  function escapeAttr(s) {
+    const div = document.createElement('div');
+    div.textContent = s;
+    return div.innerHTML.replace(/"/g, '&quot;');
+  }
+  function escapeText(s) {
+    const div = document.createElement('div');
+    div.textContent = s;
+    return div.innerHTML;
+  }
+
+  function selectAllGerencia(checked) {
+    const list = el('filter-gerencia-list');
+    if (!list) return;
+    list.querySelectorAll('input[name="gerencia"]').forEach((cb) => {
+      cb.checked = checked;
+    });
+    showKpis(getFilteredData());
+  }
+
   function tabs() {
     const tabs = document.querySelectorAll('.fonte-tabs .tab');
     const panels = document.querySelectorAll('.card.fonte .panel');
@@ -57,8 +124,28 @@
   }
 
   async function loadSheets() {
-    const sheetUrl = el('sheet-url').value.trim();
-    const gid = el('sheet-gid').value.trim() || '0';
+    // Prioridade: preset da gerência selecionada; fallback: campos manuais
+    const fonteSelect = el('fonte-gerencia');
+    let sheetUrl = '';
+    let gid = '0';
+
+    if (fonteSelect && fonteSelect.value && PRESET_SHEETS[fonteSelect.value]) {
+      const cfg = PRESET_SHEETS[fonteSelect.value];
+      sheetUrl = cfg.url;
+      gid = cfg.gid;
+      const urlEl = el('sheet-url');
+      const gidEl = el('sheet-gid');
+      if (urlEl) { urlEl.value = sheetUrl; urlEl.readOnly = true; }
+      if (gidEl) { gidEl.value = gid; gidEl.readOnly = true; }
+    } else {
+      sheetUrl = el('sheet-url') ? el('sheet-url').value.trim() : '';
+      gid      = el('sheet-gid') ? (el('sheet-gid').value.trim() || '0') : '0';
+    }
+
+    if (!sheetUrl) {
+      setStatus('fonte-status', 'Selecione uma gerência no campo acima ou informe o link/ID da planilha.', 'error');
+      return;
+    }
     setStatus('fonte-status', 'Carregando…');
     try {
       const res = await fetch(API + '/api/sheets/load', {
@@ -74,6 +161,7 @@
       state.data = json.data;
       state.info = json.info;
       setStatus('fonte-status', `Carregados ${json.data.length} reservatórios.`, 'success');
+      renderFilterGerencia(json.data);
       showKpis(json.data);
     } catch (e) {
       setStatus('fonte-status', e.message || 'Erro ao carregar planilha.', 'error');
@@ -102,6 +190,7 @@
       state.data = json.data;
       state.info = json.info;
       setStatus('fonte-status', `Processados ${json.data.length} reservatórios.`, 'success');
+      renderFilterGerencia(json.data);
       showKpis(json.data);
     } catch (e) {
       setStatus('fonte-status', e.message || 'Erro ao processar CSV.', 'error');
@@ -111,6 +200,11 @@
   async function generate() {
     if (!state.data || !state.info) {
       setStatus('generate-status', 'Carregue os dados antes.', 'error');
+      return;
+    }
+    const dataToSend = getFilteredData();
+    if (dataToSend.length === 0) {
+      setStatus('generate-status', 'Selecione ao menos uma GERÊNCIA.', 'error');
       return;
     }
     setStatus('generate-status', 'Gerando imagem…');
@@ -123,7 +217,7 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          data: state.data,
+          data: dataToSend,
           info: state.info,
           mode,
           ordenar,
@@ -155,6 +249,52 @@
     el('btn-load-sheets').addEventListener('click', loadSheets);
     el('btn-process-csv').addEventListener('click', processCsv);
     el('btn-generate').addEventListener('click', generate);
+    const btnSelectAll = el('btn-select-all-gerencia');
+    const btnClearAll = el('btn-clear-all-gerencia');
+    if (btnSelectAll) btnSelectAll.addEventListener('click', () => selectAllGerencia(true));
+    if (btnClearAll) btnClearAll.addEventListener('click', () => selectAllGerencia(false));
+
+    const fonteSelect = el('fonte-gerencia');
+    const urlInput = el('sheet-url');
+    const gidInput = el('sheet-gid');
+    if (fonteSelect) {
+      fonteSelect.addEventListener('change', () => {
+        const cfg = PRESET_SHEETS[fonteSelect.value];
+        if (cfg) {
+          if (urlInput) { urlInput.value = cfg.url; urlInput.readOnly = true; }
+          if (gidInput) { gidInput.value = cfg.gid; gidInput.readOnly = true; }
+        } else {
+          if (urlInput) { urlInput.value = ''; urlInput.readOnly = false; }
+          if (gidInput) { gidInput.value = '0'; gidInput.readOnly = false; }
+        }
+      });
+    }
+
+    loadFontes();
+  }
+
+  async function loadFontes() {
+    try {
+      const res = await fetch(API + '/api/fontes');
+      if (!res.ok) return;
+      const json = await res.json();
+      const fontes = json.fontes || [];
+      PRESET_SHEETS = {};
+      fontes.forEach((f) => { PRESET_SHEETS[f.gerencia] = { url: f.url, gid: f.gid }; });
+
+      const fonteSelect = el('fonte-gerencia');
+      if (!fonteSelect) return;
+      fonteSelect.innerHTML = '<option value="">Selecione uma gerência...</option>';
+      fontes.forEach((f) => {
+        const label = f.bacia ? `${f.gerencia} — ${f.bacia}` : f.gerencia;
+        const opt = document.createElement('option');
+        opt.value = f.gerencia;
+        opt.textContent = label;
+        fonteSelect.appendChild(opt);
+      });
+    } catch (_) {
+      // silencioso: mantém select sem opções
+    }
   }
 
   if (document.readyState === 'loading') {
