@@ -12,7 +12,11 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-FONTES_CSV = Path(__file__).parent / "Fonde de dados.csv"
+_BASE = Path(__file__).resolve().parent
+# CSV de gerências: mesmo diretório do api.py; fallback para cwd (Railway)
+FONTES_CSV = _BASE / "Fonde de dados.csv"
+if not FONTES_CSV.exists():
+    FONTES_CSV = Path.cwd() / "Fonde de dados.csv"
 
 from engine import (
     df_to_json_safe,
@@ -24,7 +28,6 @@ from engine import (
 )
 
 # --------------- Configuração da app ---------------
-_BASE = Path(__file__).resolve().parent
 STATIC_DIR = _BASE / "static"
 INDEX_HTML = STATIC_DIR / "index.html"
 
