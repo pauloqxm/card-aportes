@@ -13,10 +13,47 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 _BASE = Path(__file__).resolve().parent
-# CSV de gerências: mesmo diretório do api.py; fallback para cwd (Railway)
-FONTES_CSV = _BASE / "Fonde de dados.csv"
-if not FONTES_CSV.exists():
-    FONTES_CSV = Path.cwd() / "Fonde de dados.csv"
+
+# --------------- Fontes de gerências ---------------
+# Dados embutidos no código para garantir disponibilidade no Railway.
+# Para adicionar novas gerências, inclua um novo dict nesta lista.
+_FONTES_BUILTIN = [
+    {
+        "gerencia": "GRMBJAGUA",
+        "bacia": "MÉDIO E BAIXO JAGUARIBE",
+        "url": "https://docs.google.com/spreadsheets/d/1fbaYqjee8h4dAA8ew0RXbHOKdnSDoHIB2xPpdveYMDU",
+        "gid": "1527901614",
+    },
+    {
+        "gerencia": "GRBANABUIU",
+        "bacia": "BANABUIÚ",
+        "url": "https://docs.google.com/spreadsheets/d/1fbaYqjee8h4dAA8ew0RXbHOKdnSDoHIB2xPpdveYMDU",
+        "gid": "0",
+    },
+]
+
+def _load_fontes_csv() -> list:
+    """Tenta carregar do CSV local (sobrescreve o builtin se existir)."""
+    for candidate in [
+        _BASE / "Fonde de dados.csv",
+        Path.cwd() / "Fonde de dados.csv",
+    ]:
+        if candidate.exists():
+            try:
+                fontes = []
+                with open(candidate, newline="", encoding="utf-8-sig") as f:
+                    for row in csv.DictReader(f):
+                        gerencia = (row.get("GERÊNCIA") or row.get("GERENCIA") or "").strip()
+                        bacia    = (row.get("BACIA") or "").strip()
+                        link     = (row.get("Link_Planilha") or "").strip()
+                        gid      = (row.get("GID") or "0").strip()
+                        if gerencia and link:
+                            fontes.append({"gerencia": gerencia, "bacia": bacia, "url": link, "gid": gid})
+                if fontes:
+                    return fontes
+            except Exception:
+                pass
+    return []
 
 from engine import (
     df_to_json_safe,
@@ -52,22 +89,8 @@ class GenerateRequest(BaseModel):
 # --------------- Endpoints ---------------
 @router.get("/api/fontes")
 async def api_fontes():
-    """Retorna a lista de gerências e seus links/GIDs a partir de Fonde de dados.csv."""
-    if not FONTES_CSV.exists():
-        return {"fontes": []}
-    fontes = []
-    try:
-        with open(FONTES_CSV, newline="", encoding="utf-8-sig") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                gerencia = (row.get("GERÊNCIA") or row.get("GERENCIA") or "").strip()
-                bacia    = (row.get("BACIA") or "").strip()
-                link     = (row.get("Link_Planilha") or "").strip()
-                gid      = (row.get("GID") or "0").strip()
-                if gerencia and link:
-                    fontes.append({"gerencia": gerencia, "bacia": bacia, "url": link, "gid": gid})
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao ler fontes: {str(e)}")
+    """Retorna a lista de gerências. Usa CSV local se disponível; senão usa dados embutidos."""
+    fontes = _load_fontes_csv() or _FONTES_BUILTIN
     return {"fontes": fontes}
 
 
