@@ -371,8 +371,60 @@ def draw_bacia_pill(draw, right_x, y, text_value, big=False, min_left_x=70, max_
     return x
 
 
-def generate_image(df_all: pd.DataFrame, mode: str, date_anterior: str, date_atual: str,
-                   ordenar: str, formato: str, convert_raw_m3_to_millions: bool) -> Image.Image:
+def generate_pages(df_all: pd.DataFrame, mode: str, date_anterior: str, date_atual: str,
+                   ordenar: str, formato: str, convert_raw_m3_to_millions: bool) -> list:
+    """Gera todas as páginas necessárias (cada uma com até 15 cards) e retorna lista de imagens."""
+    # Montar lista ordenada completa (sem limite de 15)
+    df = df_all.copy()
+    df_vertendo = df[df["percentual"] >= 100].copy()
+    df_nao_vertendo = df[df["percentual"] < 100].copy()
+    df_pos = df_nao_vertendo[(df_nao_vertendo["variacao_m"] > 0) & (~df_nao_vertendo["variacao_m"].isna())].copy()
+    df_neg = df_nao_vertendo[(df_nao_vertendo["variacao_m"] < 0) & (~df_nao_vertendo["variacao_m"].isna())].copy()
+    df_zero = df_nao_vertendo[(df_nao_vertendo["variacao_m"] == 0) & (~df_nao_vertendo["variacao_m"].isna())].copy()
+
+    if ordenar == "Maior variação positiva":
+        df_pos = df_pos.sort_values("variacao_m", ascending=False)
+        df_neg = df_neg.sort_values("variacao_m", ascending=True)
+    elif ordenar == "Maior variação negativa":
+        df_neg = df_neg.sort_values("variacao_m", ascending=True)
+        df_pos = df_pos.sort_values("variacao_m", ascending=False)
+    elif ordenar == "Maior variação absoluta":
+        df_vertendo = df[df["percentual"] >= 100].copy()
+        tmp_nao_vert = df[df["percentual"] < 100].copy()
+        tmp = tmp_nao_vert.assign(_abs=tmp_nao_vert["variacao_m"].abs()).sort_values("_abs", ascending=False).drop(columns=["_abs"])
+        df_pos = tmp[(tmp["variacao_m"] > 0) & (~tmp["variacao_m"].isna())]
+        df_neg = tmp[(tmp["variacao_m"] < 0) & (~tmp["variacao_m"].isna())]
+        df_zero = tmp[(tmp["variacao_m"] == 0) & (~tmp["variacao_m"].isna())]
+
+    ordered = pd.concat([df_vertendo, df_pos, df_neg, df_zero], ignore_index=True)
+    ordered = ordered.drop_duplicates(subset=["nome"], keep="first").reset_index(drop=True)
+
+    total_rows = len(ordered)
+    per_page = 15
+    n_pages = max(1, (total_rows + per_page - 1) // per_page)
+    pages = []
+    for p in range(n_pages):
+        slice_df = ordered.iloc[p * per_page : (p + 1) * per_page].reset_index(drop=True)
+        img = _render_page(
+            df_all=df_all,
+            ordered_slice=slice_df,
+            mode=mode,
+            date_anterior=date_anterior,
+            date_atual=date_atual,
+            formato=formato,
+            convert_raw_m3_to_millions=convert_raw_m3_to_millions,
+            page_num=p + 1,
+            total_pages=n_pages,
+        )
+        pages.append(img)
+    return pages
+
+
+def _render_page(df_all: pd.DataFrame, ordered_slice: pd.DataFrame, mode: str,
+                 date_anterior: str, date_atual: str, formato: str,
+                 convert_raw_m3_to_millions: bool,
+                 page_num: int = 1, total_pages: int = 1) -> Image.Image:
+    """Renderiza uma única página com os cards do slice fornecido."""
     if mode == "Feed (1080x1350)":
         try:
             base = Image.open(BASE_LAYOUT_PATH).convert("RGBA")
@@ -436,36 +488,14 @@ def generate_image(df_all: pd.DataFrame, mode: str, date_anterior: str, date_atu
     draw.line((pad, y, W - pad, y), fill=(226, 232, 240, 255), width=3)
     y += 24
 
-    df = df_all.copy()
-    df_vertendo = df[df["percentual"] >= 100].copy()
-    df_nao_vertendo = df[df["percentual"] < 100].copy()
-    df_pos = df_nao_vertendo[(df_nao_vertendo["variacao_m"] > 0) & (~df_nao_vertendo["variacao_m"].isna())].copy()
-    df_neg = df_nao_vertendo[(df_nao_vertendo["variacao_m"] < 0) & (~df_nao_vertendo["variacao_m"].isna())].copy()
-    df_zero = df_nao_vertendo[(df_nao_vertendo["variacao_m"] == 0) & (~df_nao_vertendo["variacao_m"].isna())].copy()
-
-    if ordenar == "Maior variação positiva":
-        df_pos = df_pos.sort_values("variacao_m", ascending=False)
-        df_neg = df_neg.sort_values("variacao_m", ascending=True)
-    elif ordenar == "Maior variação negativa":
-        df_neg = df_neg.sort_values("variacao_m", ascending=True)
-        df_pos = df_pos.sort_values("variacao_m", ascending=False)
-    elif ordenar == "Maior variação absoluta":
-        df_vertendo = df[df["percentual"] >= 100].copy()
-        tmp_nao_vert = df[df["percentual"] < 100].copy()
-        tmp = tmp_nao_vert.assign(_abs=tmp_nao_vert["variacao_m"].abs()).sort_values("_abs", ascending=False).drop(columns=["_abs"])
-        df_pos = tmp[(tmp["variacao_m"] > 0) & (~tmp["variacao_m"].isna())]
-        df_neg = tmp[(tmp["variacao_m"] < 0) & (~tmp["variacao_m"].isna())]
-        df_zero = tmp[(tmp["variacao_m"] == 0) & (~tmp["variacao_m"].isna())]
-
-    ordered = pd.concat([df_vertendo, df_pos, df_neg, df_zero], ignore_index=True)
-    ordered = ordered.drop_duplicates(subset=["nome"], keep="first").head(15).reset_index(drop=True)
-
     gap_x, gap_y = 18, 16
     grid_x, grid_y = pad, y
     grid_w = W - 2 * pad
     grid_h = H - grid_y - (110 if big else 95)
     card_w = int((grid_w - (cols_grid - 1) * gap_x) / cols_grid)
     card_h = int((grid_h - (rows_grid - 1) * gap_y) / rows_grid)
+
+    ordered = ordered_slice
 
     def draw_item(ix: int, row: pd.Series, x: int, y: int):
         nome = norm_txt(str(row.get("nome", "N/A"))).strip()
@@ -493,7 +523,9 @@ def generate_image(df_all: pd.DataFrame, mode: str, date_anterior: str, date_atu
         draw_rounded_rect(draw, x, y, card_w, card_h, 22, fill=bg, outline=bd, width=2)
         rank_w = 44
         draw_rounded_rect(draw, x + card_w - rank_w - 10, y + 10, rank_w, 30, 14, fill=bd, outline=None, width=0)
-        draw.text((x + card_w - 10 - rank_w / 2, y + 25), norm_txt(str(ix + 1)), fill=(255, 255, 255, 255), font=get_font(16, True), anchor="mm")
+        # número global do card (considerando a página)
+        global_ix = (page_num - 1) * 15 + ix + 1
+        draw.text((x + card_w - 10 - rank_w / 2, y + 25), norm_txt(str(global_ix)), fill=(255, 255, 255, 255), font=get_font(16, True), anchor="mm")
         name_area_w = card_w - 28 - 54
         f_name = get_font(f_name_base, True)
         nome_1linha = ellipsize_text(draw, nome.upper(), f_name, name_area_w)
@@ -537,7 +569,7 @@ def generate_image(df_all: pd.DataFrame, mode: str, date_anterior: str, date_atu
         f_pct = get_font(16 if big else 14, True)
         draw.text((x + card_w - 14, bar_y - (18 if big else 16)), norm_txt(f"{fmt_pct_br(pct_val)}%"), fill=tx, font=f_pct, anchor="ra")
 
-    for i in range(min(15, len(ordered))):
+    for i in range(len(ordered)):
         ri, ci = i // cols_grid, i % cols_grid
         cx = grid_x + ci * (card_w + gap_x)
         cy = grid_y + ri * (card_h + gap_y)
@@ -547,10 +579,18 @@ def generate_image(df_all: pd.DataFrame, mode: str, date_anterior: str, date_atu
     foot_y = H - (72 if big else 70)
     draw.line((pad, foot_y - 18, W - pad, foot_y - 18), fill=(226, 232, 240, 255), width=2)
     f_foot = get_font(26 if big else 22, False)
-    draw.text((pad, foot_y), norm_txt(fonte_txt), fill=(100, 116, 139, 255), font=f_foot)
+    page_label = f"Pág. {page_num}/{total_pages}  •  {fonte_txt}" if total_pages > 1 else fonte_txt
+    draw.text((pad, foot_y), norm_txt(page_label), fill=(100, 116, 139, 255), font=f_foot)
     ts = datetime.now(TZ_FORTALEZA).strftime("%d/%m/%Y %H:%M")
     draw.text((W - pad, foot_y), norm_txt(f"Gerado em {ts}"), fill=(100, 116, 139, 255), font=f_foot, anchor="ra")
     return img.convert("RGB") if formato.upper() == "JPG" else img
+
+
+def generate_image(df_all: pd.DataFrame, mode: str, date_anterior: str, date_atual: str,
+                   ordenar: str, formato: str, convert_raw_m3_to_millions: bool) -> Image.Image:
+    """Mantido por compatibilidade — retorna somente a primeira página."""
+    pages = generate_pages(df_all, mode, date_anterior, date_atual, ordenar, formato, convert_raw_m3_to_millions)
+    return pages[0]
 
 
 def df_to_json_safe(df: pd.DataFrame) -> list:

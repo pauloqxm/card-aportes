@@ -58,6 +58,7 @@ def _load_fontes_csv() -> list:
 from engine import (
     df_to_json_safe,
     generate_image,
+    generate_pages,
     load_csv_from_bytes,
     load_data_from_sheets,
     process_df,
@@ -176,6 +177,55 @@ async def api_generate(body: GenerateRequest):
         media_type = "image/png"
     buf.seek(0)
     return Response(content=buf.getvalue(), media_type=media_type)
+
+
+@router.post("/api/generate-all")
+async def api_generate_all(body: GenerateRequest):
+    """Gera todas as páginas e retorna um ZIP com cada imagem nomeada p1, p2, ..."""
+    import io
+    import zipfile
+    import pandas as pd
+
+    if not body.data:
+        raise HTTPException(status_code=422, detail="Nenhum dado para gerar o card.")
+    try:
+        df = pd.DataFrame(body.data)
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"Dados inválidos: {str(e)}")
+    periodo = body.info.get("periodo", {})
+    date_anterior = periodo.get("anterior", "")
+    date_atual = periodo.get("atual", "")
+    try:
+        pages = generate_pages(
+            df_all=df,
+            mode=body.mode,
+            date_anterior=date_anterior,
+            date_atual=date_atual,
+            ordenar=body.ordenar,
+            formato=body.formato,
+            convert_raw_m3_to_millions=body.convert_raw_m3_to_millions,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao gerar imagens: {str(e)}")
+
+    fmt = "JPEG" if body.formato.upper() == "JPG" else "PNG"
+    ext = body.formato.lower()
+    zip_buf = io.BytesIO()
+    with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for i, img in enumerate(pages, start=1):
+            img_buf = io.BytesIO()
+            if fmt == "JPEG":
+                img.save(img_buf, format=fmt, quality=95, optimize=True)
+            else:
+                img.save(img_buf, format=fmt, optimize=True)
+            img_buf.seek(0)
+            zf.writestr(f"pagina_{i}.{ext}", img_buf.getvalue())
+    zip_buf.seek(0)
+    return Response(
+        content=zip_buf.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename=monitoramento_cards.zip"},
+    )
 
 
 def create_app():
