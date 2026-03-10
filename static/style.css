@@ -441,20 +441,6 @@ body {
   color: var(--text-muted);
 }
 
-.footer-admin {
-  margin-top: 0.75rem;
-  font-size: 0.85rem;
-}
-
-.footer-admin a {
-  color: var(--accent);
-  text-decoration: none;
-}
-
-.footer-admin a:hover {
-  text-decoration: underline;
-}
-
 @media (max-width: 560px) {
   .logo-img {
     max-width: 140px;
