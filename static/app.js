@@ -207,41 +207,103 @@
       setStatus('generate-status', 'Selecione ao menos uma GERÊNCIA.', 'error');
       return;
     }
-    setStatus('generate-status', 'Gerando imagem…');
+    const totalItems = dataToSend.length;
+    const totalPages = Math.ceil(totalItems / 15);
     const mode = el('mode').value;
     const ordenar = el('ordenar').value;
     const formato = el('formato').value;
     const convert = el('convert-m3').checked;
-    try {
-      const res = await fetch(API + '/api/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          data: dataToSend,
-          info: state.info,
-          mode,
-          ordenar,
-          formato,
-          convert_raw_m3_to_millions: convert,
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ detail: res.statusText }));
-        throw new Error(err.detail || res.statusText);
+    const ext = formato.toLowerCase();
+    const body = JSON.stringify({ data: dataToSend, info: state.info, mode, ordenar, formato, convert_raw_m3_to_millions: convert });
+    const headers = { 'Content-Type': 'application/json' };
+
+    if (totalPages <= 1) {
+      // uma única página → fluxo original
+      setStatus('generate-status', 'Gerando imagem…');
+      try {
+        const res = await fetch(API + '/api/generate', { method: 'POST', headers, body });
+        if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || res.statusText); }
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        _showPreviews([{ url, label: 'Página 1', ext }]);
+        setStatus('generate-status', 'Pronto. Use o botão abaixo para baixar.', 'success');
+      } catch (e) {
+        setStatus('generate-status', e.message || 'Erro ao gerar imagem.', 'error');
       }
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const img = el('preview-img');
-      const link = el('btn-download');
-      img.src = url;
-      link.href = url;
-      link.download = `monitoramento_${formato.toLowerCase() === 'jpg' ? 'stories' : 'feed'}_${Date.now()}.${formato.toLowerCase()}`;
-      link.style.display = 'inline-flex';
-      el('section-preview').hidden = false;
-      setStatus('generate-status', 'Pronto. Use o botão abaixo para baixar.', 'success');
-    } catch (e) {
-      setStatus('generate-status', e.message || 'Erro ao gerar imagem.', 'error');
+    } else {
+      // múltiplas páginas → gera ZIP e extrai cada imagem para prévia
+      setStatus('generate-status', `Gerando ${totalPages} páginas…`);
+      try {
+        const res = await fetch(API + '/api/generate-all', { method: 'POST', headers, body });
+        if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || res.statusText); }
+        const zipBlob = await res.blob();
+        const zipUrl = URL.createObjectURL(zipBlob);
+
+        // Usa JSZip para extrair as imagens do ZIP e mostrar prévia
+        let previews = [];
+        try {
+          const JSZip = window.JSZip;
+          if (JSZip) {
+            const zip = await JSZip.loadAsync(zipBlob);
+            const files = Object.keys(zip.files).sort();
+            for (const fname of files) {
+              const imgBlob = await zip.files[fname].async('blob');
+              previews.push({ url: URL.createObjectURL(imgBlob), label: fname.replace(/_/g, ' ').replace('.'+ext,''), ext });
+            }
+          }
+        } catch (_) {}
+
+        if (previews.length === 0) {
+          // sem JSZip: apenas botão de download do ZIP
+          previews = [];
+        }
+        _showPreviews(previews, zipUrl, `monitoramento_cards.zip`);
+        setStatus('generate-status', `${totalPages} páginas geradas. Baixe o ZIP com todas.`, 'success');
+      } catch (e) {
+        setStatus('generate-status', e.message || 'Erro ao gerar imagens.', 'error');
+      }
     }
+  }
+
+  function _showPreviews(previews, zipUrl, zipName) {
+    const container = el('preview-pages');
+    const actions = el('preview-actions');
+    if (!container) return;
+    container.innerHTML = '';
+
+    previews.forEach((p, i) => {
+      const wrap = document.createElement('div');
+      wrap.className = 'preview-page-block';
+      const label = document.createElement('p');
+      label.className = 'preview-page-label';
+      label.textContent = p.label || `Página ${i + 1}`;
+      const img = document.createElement('img');
+      img.src = p.url;
+      img.alt = p.label || `Página ${i + 1}`;
+      img.className = 'preview-page-img';
+      const dlBtn = document.createElement('a');
+      dlBtn.href = p.url;
+      dlBtn.download = `monitoramento_p${i + 1}.${p.ext}`;
+      dlBtn.className = 'btn btn-download-secondary';
+      dlBtn.textContent = `Baixar página ${i + 1}`;
+      wrap.appendChild(label);
+      wrap.appendChild(img);
+      wrap.appendChild(dlBtn);
+      container.appendChild(wrap);
+    });
+
+    if (actions) {
+      actions.style.display = previews.length > 0 || zipUrl ? 'flex' : 'none';
+      const zipBtn = el('btn-download-zip');
+      if (zipUrl && zipBtn) {
+        zipBtn.href = zipUrl;
+        zipBtn.download = zipName || 'monitoramento_cards.zip';
+        zipBtn.style.display = 'inline-flex';
+      } else if (zipBtn) {
+        zipBtn.style.display = 'none';
+      }
+    }
+    el('section-preview').hidden = false;
   }
 
   function init() {

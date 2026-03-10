@@ -113,10 +113,11 @@
 
       <section class="card preview" id="section-preview" hidden>
         <h2>Prévia</h2>
-        <div class="preview-wrap">
-          <img id="preview-img" alt="Prévia do card" />
+        <div id="preview-pages" class="preview-pages"></div>
+        <div id="preview-actions" class="preview-actions" style="display:none;">
+          <a id="btn-download-zip" class="btn btn-download" download="monitoramento_cards.zip">Baixar todas (ZIP)</a>
+          <a id="btn-download-single" class="btn btn-download-secondary" download style="display:none;">Baixar página 1</a>
         </div>
-        <a id="btn-download" class="btn btn-download" download style="display: none;">Baixar imagem</a>
       </section>
     </main>
 
@@ -127,6 +128,7 @@
       <p class="footer-cnpj">CNPJ: 74.075.938.0001-07</p>
     </footer>
   </div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" crossorigin="anonymous"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>
