@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Identificar Cota — Card Reservatórios</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app" id="top">
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="topbar-brand">
+          <img src="/static/logo_cogerh.png" alt="COGERH" class="topbar-logo">
+          <span class="topbar-title">Card Reservatórios</span>
+        </div>
+        <button type="button" id="topbar-menu-toggle" class="topbar-menu-toggle" aria-label="Abrir menu">
+          <span></span>
+          <span></span>
+        </button>
+        <nav class="topbar-nav" id="topbar-nav">
+          <a href="/" class="topbar-link">Início</a>
+          <a href="/static/cota.html" class="topbar-link">Identificar Cota</a>
+          <a href="https://www.hidro.ce.gov.br/" target="_blank" rel="noopener noreferrer" class="topbar-link">Hidro</a>
+          <a href="https://www.cogerh.com.br/" target="_blank" rel="noopener noreferrer" class="topbar-link">COGERH</a>
+        </nav>
+      </div>
+    </header>
+
+    <header class="header">
+      <img src="/static/logo_cogerh.png" alt="COGERH" class="logo-img">
+      <h1>Identificar Cota do Reservatório</h1>
+      <p class="tagline">Filtre bacia e reservatório, informe barrote e leitura, e obtenha a cota correspondente.</p>
+    </header>
+
+    <main class="main">
+      <section class="card">
+        <h2>Seleção de Bacia e Reservatório</h2>
+        <div class="opcoes-grid">
+          <div class="field">
+            <label for="cav-bacia">Bacia</label>
+            <select id="cav-bacia">
+              <option value="">Carregando bacias...</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="cav-reservatorio">Reservatório</label>
+            <select id="cav-reservatorio" disabled>
+              <option value="">Selecione uma bacia primeiro</option>
+            </select>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Consulta de Cota</h2>
+        <div class="opcoes-grid">
+          <div class="field">
+            <label for="cav-barrote">Barrote</label>
+            <input type="number" id="cav-barrote" inputmode="numeric" placeholder="Ex.: 78">
+          </div>
+          <div class="field">
+            <label for="cav-leitura">Leitura</label>
+            <input type="number" id="cav-leitura" inputmode="numeric" placeholder="Ex.: 84">
+          </div>
+        </div>
+        <div style="margin-top: 1rem; display: flex; gap: 0.75rem; flex-wrap: wrap;">
+          <button type="button" id="btn-cav-buscar" class="btn btn-primary">Buscar cota</button>
+          <p id="cav-status" class="status" aria-live="polite"></p>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Resultado</h2>
+        <div class="opcoes-grid">
+          <div class="field">
+            <label for="cav-cota">Cota (m)</label>
+            <input type="text" id="cav-cota" readonly>
+          </div>
+          <div class="field">
+            <label for="cav-area">Área (km²)</label>
+            <input type="text" id="cav-area" readonly>
+          </div>
+          <div class="field">
+            <label for="cav-volume">Volume (m³)</label>
+            <input type="text" id="cav-volume" readonly>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <p class="footer-dev">Desenvolvido pela Gerência da Bacia do Banabuiu</p>
+      <p class="footer-org">COGERH — Companhia de Gestão dos Recursos Hídricos</p>
+      <p class="footer-addr">Rua Adualdo Batista, 1550 — Parque Iracema, Fortaleza/CE — CEP: 60.824.140</p>
+      <p class="footer-cnpj">CNPJ: 74.075.938.0001-07</p>
+    </footer>
+  </div>
+
+  <script src="/static/cota.js"></script>
+</body>
+</html>
+
