@@ -42,8 +42,8 @@ body {
   position: sticky;
   top: 0;
   z-index: 40;
-  margin: -0.5rem -0.75rem 1rem;
-  padding: 0.35rem 0.75rem;
+  margin: 0 0 1rem 0;
+  padding: 0.4rem 0.9rem;
   backdrop-filter: blur(12px);
   background: linear-gradient(120deg, rgba(15, 23, 42, 0.96), rgba(15, 23, 42, 0.9));
   border-radius: 999px;
@@ -64,8 +64,8 @@ body {
 }
 
 .topbar-logo {
-  width: 32px;
-  height: 32px;
+  width: 26px;
+  height: 26px;
   object-fit: contain;
   border-radius: 999px;
   background: #0b1120;
@@ -179,7 +179,7 @@ body {
 .logo-img {
   display: block;
   width: 100%;
-  max-width: 180px;
+  max-width: 150px;
   height: auto;
   margin: 0 auto 0.75rem;
 }
