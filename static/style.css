@@ -21,23 +21,159 @@ body {
   margin: 0;
   min-height: 100vh;
   font-family: var(--font);
-  background: var(--bg);
+  background:
+    radial-gradient(circle at top left, #1d2a3f 0, transparent 55%),
+    radial-gradient(circle at bottom right, #0f172a 0, transparent 50%),
+    var(--bg);
   color: var(--text);
   line-height: 1.5;
 }
 
 .app {
-  max-width: 720px;
+  max-width: 900px;
   margin: 0 auto;
-  padding: 1.5rem;
+  padding: 1.25rem 1.5rem 2rem;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
 }
 
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  margin: -0.5rem -0.75rem 1rem;
+  padding: 0.35rem 0.75rem;
+  backdrop-filter: blur(12px);
+  background: linear-gradient(120deg, rgba(15, 23, 42, 0.96), rgba(15, 23, 42, 0.9));
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+}
+
+.topbar-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.topbar-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.topbar-logo {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  border-radius: 999px;
+  background: #0b1120;
+  padding: 2px;
+}
+
+.topbar-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+
+.topbar-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.topbar-link {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  text-decoration: none;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  transition: color 0.18s ease, background-color 0.18s ease, border-color 0.18s ease;
+}
+
+.topbar-link:hover {
+  color: var(--text);
+  background: rgba(15, 118, 235, 0.15);
+  border-color: rgba(56, 189, 248, 0.4);
+}
+
+.topbar-menu-toggle {
+  display: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.5);
+  background: rgba(15, 23, 42, 0.9);
+  padding: 6px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  cursor: pointer;
+}
+
+.topbar-menu-toggle span {
+  display: block;
+  width: 16px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--text);
+  transition: transform 0.18s ease, opacity 0.18s ease;
+}
+
+.topbar-menu-toggle.open span:first-child {
+  transform: translateY(2px) rotate(45deg);
+}
+
+.topbar-menu-toggle.open span:last-child {
+  transform: translateY(-2px) rotate(-45deg);
+}
+
+@media (max-width: 640px) {
+  .app {
+    padding-inline: 1.1rem;
+  }
+
+  .topbar-inner {
+    gap: 0.6rem;
+  }
+
+  .topbar-nav {
+    position: fixed;
+    inset-inline: 0;
+    top: 56px;
+    padding: 0.5rem 1.25rem 1rem;
+    display: none;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.35rem;
+    background: linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(15, 23, 42, 0.96));
+    border-bottom: 1px solid rgba(148, 163, 184, 0.3);
+    z-index: 35;
+  }
+
+  .topbar-nav.open {
+    display: flex;
+  }
+
+  .topbar-link {
+    width: 100%;
+    padding: 0.4rem 0.75rem;
+    border-radius: 0.6rem;
+  }
+
+  .topbar-menu-toggle {
+    display: inline-flex;
+  }
+}
+
 .header {
   text-align: center;
-  margin-bottom: 2rem;
+  margin-bottom: 1.75rem;
 }
 
 .logo-img {
@@ -72,7 +208,10 @@ body {
   background: var(--surface);
   border-radius: var(--radius);
   padding: 1.25rem 1.5rem;
-  border: 1px solid var(--surface2);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  box-shadow:
+    0 18px 45px rgba(15, 23, 42, 0.65),
+    0 1px 0 rgba(148, 163, 184, 0.18);
 }
 
 .card h2 {

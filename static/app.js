@@ -2,8 +2,12 @@
   'use strict';
 
   const API = '';
+  const DEFAULT_SHEET_URL = 'https://docs.google.com/spreadsheets/d/15RrQ7ccfZITr2VslQGi1yglLLabKMVFTv5mUepjcW7g/edit?gid=0#gid=0';
+  const DEFAULT_GID = '0';
   let state = { data: null, info: null };
   let PRESET_SHEETS = {};
+  let lastDownload = null; // { blob, filename, mimeType }
+  let currentBaseFilename = 'monitoramento'; // base para nomes de arquivos (gerência + data/hora)
 
   const el = (id) => document.getElementById(id);
   const setStatus = (id, text, className = '') => {
@@ -42,12 +46,51 @@
     el('btn-generate').disabled = false;
   }
 
+  function buildGerenciaBaciaKey(row) {
+    const g = row && row.gerencia != null ? String(row.gerencia).trim() : '';
+    const b = row && row.bacia != null ? String(row.bacia).trim() : '';
+    if (!g && !b) return '';
+    if (g && b) return `${g} — ${b}`;
+    return g || b;
+  }
+
+  function buildCurrentBaseFilename(dataRows) {
+    const fonteSelect = el('fonte-gerencia');
+    let label = '';
+    if (fonteSelect && fonteSelect.value) {
+      label = fonteSelect.value;
+    } else {
+      const keys = new Set(
+        (Array.isArray(dataRows) ? dataRows : []).map((r) => buildGerenciaBaciaKey(r)).filter(Boolean)
+      );
+      if (keys.size === 1) {
+        label = Array.from(keys)[0];
+      } else if (keys.size > 1) {
+        label = 'GERAL';
+      }
+    }
+    const now = new Date();
+    const pad2 = (n) => String(n).padStart(2, '0');
+    const ts = `${now.getFullYear()}${pad2(now.getMonth() + 1)}${pad2(now.getDate())}_${pad2(
+      now.getHours()
+    )}${pad2(now.getMinutes())}`;
+    const slug =
+      (label &&
+        label
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/[^a-zA-Z0-9]+/g, '_')
+          .replace(/^_+|_+$/g, '')) ||
+      'GERAL';
+    return `monitoramento_${slug}_${ts}`;
+  }
+
   function getUniqueGerencia(data) {
     const rows = Array.isArray(data) ? data : [];
     const set = new Set();
     rows.forEach((r) => {
-      const g = r.gerencia != null ? String(r.gerencia).trim() : '';
-      if (g && g.toLowerCase() !== 'n/a') set.add(g);
+      const key = buildGerenciaBaciaKey(r);
+      if (key && key.toLowerCase() !== 'n/a') set.add(key);
     });
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }
@@ -60,8 +103,8 @@
     if (checked.length === 0) return state.data;
     const selected = new Set(Array.from(checked).map((c) => c.value));
     return state.data.filter((r) => {
-      const g = r.gerencia != null ? String(r.gerencia).trim() : '';
-      return selected.has(g);
+      const key = buildGerenciaBaciaKey(r);
+      return selected.has(key);
     });
   }
 
@@ -108,6 +151,66 @@
     showKpis(getFilteredData());
   }
 
+  function updateShareButtonVisibility() {
+    const btn = el('btn-share-whatsapp');
+    if (!btn) return;
+    // Botão global de compartilhamento é usado apenas para PDF
+    const isPdf = lastDownload && lastDownload.mimeType === 'application/pdf';
+    btn.style.display = isPdf ? 'inline-flex' : 'none';
+  }
+
+  async function shareViaWhatsApp() {
+    if (!lastDownload) {
+      alert('Nenhum arquivo gerado para enviar. Gere o card primeiro.');
+      return;
+    }
+    const { blob, filename, mimeType } = lastDownload;
+
+    try {
+      const file = new File([blob], filename, { type: mimeType || 'application/octet-stream' });
+      if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: 'Monitoramento de Reservatórios',
+          text: 'Card de monitoramento gerado pelo sistema.',
+        });
+        return;
+      }
+    } catch (e) {
+      // fallback abaixo
+    }
+
+    // Fallback: abre WhatsApp Web / App com mensagem de texto
+    const text = encodeURIComponent('Card de monitoramento gerado. Anexe o arquivo baixado: ' + filename);
+    const url = 'https://wa.me/?text=' + text;
+    window.open(url, '_blank');
+  }
+
+  async function shareImageViaWhatsApp(imageUrl, ext, pageIndex) {
+    try {
+      const res = await fetch(imageUrl);
+      const blob = await res.blob();
+      const filename = `${currentBaseFilename}_p${pageIndex}.${ext}`;
+      const mimeType = ext === 'jpg' ? 'image/jpeg' : 'image/png';
+      const file = new File([blob], filename, { type: mimeType });
+
+      if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: 'Monitoramento de Reservatórios',
+          text: `Card de monitoramento (página ${pageIndex}).`,
+        });
+        return;
+      }
+    } catch (e) {
+      // continua para o fallback
+    }
+
+    const text = encodeURIComponent('Card de monitoramento gerado. Anexe a imagem baixada desta página.');
+    const url = 'https://wa.me/?text=' + text;
+    window.open(url, '_blank');
+  }
+
   function tabs() {
     const tabs = document.querySelectorAll('.fonte-tabs .tab');
     const panels = document.querySelectorAll('.card.fonte .panel');
@@ -124,26 +227,14 @@
   }
 
   async function loadSheets() {
-    // Prioridade: preset da gerência selecionada; fallback: campos manuais
-    const fonteSelect = el('fonte-gerencia');
-    let sheetUrl = '';
-    let gid = '0';
-
-    if (fonteSelect && fonteSelect.value && PRESET_SHEETS[fonteSelect.value]) {
-      const cfg = PRESET_SHEETS[fonteSelect.value];
-      sheetUrl = cfg.url;
-      gid = cfg.gid;
-      const urlEl = el('sheet-url');
-      const gidEl = el('sheet-gid');
-      if (urlEl) { urlEl.value = sheetUrl; urlEl.readOnly = true; }
-      if (gidEl) { gidEl.value = gid; gidEl.readOnly = true; }
-    } else {
-      sheetUrl = el('sheet-url') ? el('sheet-url').value.trim() : '';
-      gid      = el('sheet-gid') ? (el('sheet-gid').value.trim() || '0') : '0';
-    }
+    // Usa por padrão a planilha geral fixa; campos permitem override manual se necessário.
+    const urlEl = el('sheet-url');
+    const gidEl = el('sheet-gid');
+    const sheetUrl = (urlEl && urlEl.value.trim()) || DEFAULT_SHEET_URL;
+    const gid = (gidEl && gidEl.value.trim()) || DEFAULT_GID;
 
     if (!sheetUrl) {
-      setStatus('fonte-status', 'Selecione uma gerência no campo acima ou informe o link/ID da planilha.', 'error');
+      setStatus('fonte-status', 'Informe o link/ID da planilha.', 'error');
       return;
     }
     setStatus('fonte-status', 'Carregando…');
@@ -158,11 +249,21 @@
         throw new Error(err.detail || res.statusText);
       }
       const json = await res.json();
-      state.data = json.data;
+
+      // Aplica filtro inicial pela combinação selecionada no menu "Gerência / Bacia", se houver
+      const fonteSelect = el('fonte-gerencia');
+      const selectedKey = fonteSelect && fonteSelect.value ? fonteSelect.value : '';
+      let dataAll = json.data || [];
+      let dataFiltered = dataAll;
+      if (selectedKey) {
+        dataFiltered = dataAll.filter((r) => buildGerenciaBaciaKey(r) === selectedKey);
+      }
+
+      state.data = dataFiltered;
       state.info = json.info;
-      setStatus('fonte-status', `Carregados ${json.data.length} reservatórios.`, 'success');
-      renderFilterGerencia(json.data);
-      showKpis(json.data);
+      setStatus('fonte-status', `Carregados ${dataFiltered.length} reservatórios.`, 'success');
+      renderFilterGerencia(dataFiltered);
+      showKpis(dataFiltered);
     } catch (e) {
       setStatus('fonte-status', e.message || 'Erro ao carregar planilha.', 'error');
     }
@@ -187,11 +288,20 @@
         throw new Error(err.detail || res.statusText);
       }
       const json = await res.json();
-      state.data = json.data;
+
+      const fonteSelect = el('fonte-gerencia');
+      const selectedKey = fonteSelect && fonteSelect.value ? fonteSelect.value : '';
+      let dataAll = json.data || [];
+      let dataFiltered = dataAll;
+      if (selectedKey) {
+        dataFiltered = dataAll.filter((r) => buildGerenciaBaciaKey(r) === selectedKey);
+      }
+
+      state.data = dataFiltered;
       state.info = json.info;
-      setStatus('fonte-status', `Processados ${json.data.length} reservatórios.`, 'success');
-      renderFilterGerencia(json.data);
-      showKpis(json.data);
+      setStatus('fonte-status', `Processados ${dataFiltered.length} reservatórios.`, 'success');
+      renderFilterGerencia(dataFiltered);
+      showKpis(dataFiltered);
     } catch (e) {
       setStatus('fonte-status', e.message || 'Erro ao processar CSV.', 'error');
     }
@@ -204,7 +314,7 @@
     }
     const dataToSend = getFilteredData();
     if (dataToSend.length === 0) {
-      setStatus('generate-status', 'Selecione ao menos uma GERÊNCIA.', 'error');
+      setStatus('generate-status', 'Selecione ao menos uma combinação GERÊNCIA + BACIA.', 'error');
       return;
     }
     const totalItems = dataToSend.length;
@@ -214,9 +324,63 @@
     const formato = el('formato').value;
     const convert = el('convert-m3').checked;
     const ext = formato.toLowerCase();
+
+    // Define base de nome de arquivo (gerência + data/hora)
+    currentBaseFilename = buildCurrentBaseFilename(dataToSend);
     const body = JSON.stringify({ data: dataToSend, info: state.info, mode, ordenar, formato, convert_raw_m3_to_millions: convert });
     const headers = { 'Content-Type': 'application/json' };
 
+    // Fluxo especial para PDF: gera um único PDF (A4) via backend.
+    if (formato === 'PDF') {
+      const endpoint = totalPages <= 1 ? '/api/generate' : '/api/generate-all';
+      setStatus('generate-status', 'Gerando PDF…');
+      try {
+        const res = await fetch(API + endpoint, { method: 'POST', headers, body });
+        if (!res.ok) {
+          const e = await res.json().catch(() => ({}));
+          throw new Error(e.detail || res.statusText);
+        }
+        const pdfBlob = await res.blob();
+        lastDownload = {
+          blob: pdfBlob,
+          filename: `${currentBaseFilename}.pdf`,
+          mimeType: 'application/pdf',
+        };
+        const pdfUrl = URL.createObjectURL(pdfBlob);
+
+        // Limpa prévia de imagens e só oferece botão de download do PDF.
+        const container = el('preview-pages');
+        if (container) container.innerHTML = '';
+        const actions = el('preview-actions');
+        if (actions) {
+          actions.style.display = 'flex';
+          const zipBtn = el('btn-download-zip');
+          if (zipBtn) {
+            zipBtn.href = pdfUrl;
+            zipBtn.download = `${currentBaseFilename}.pdf`;
+            zipBtn.textContent = 'Baixar PDF';
+            zipBtn.style.display = 'inline-flex';
+          }
+          const singleBtn = el('btn-download-single');
+          if (singleBtn) {
+            singleBtn.style.display = 'none';
+          }
+        }
+        const sectionPreview = el('section-preview');
+        if (sectionPreview) {
+          sectionPreview.hidden = false;
+          sectionPreview.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        updateShareButtonVisibility();
+        setStatus('generate-status', 'PDF gerado. Use o botão abaixo para baixar.', 'success');
+      } catch (e) {
+        setStatus('generate-status', e.message || 'Erro ao gerar PDF.', 'error');
+      }
+      return;
+    }
+
+    // Fluxo original para PNG / JPG
     if (totalPages <= 1) {
       // uma única página → fluxo original
       setStatus('generate-status', 'Gerando imagem…');
@@ -224,8 +388,14 @@
         const res = await fetch(API + '/api/generate', { method: 'POST', headers, body });
         if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || res.statusText); }
         const blob = await res.blob();
+        lastDownload = {
+          blob,
+          filename: `${currentBaseFilename}_p1.${ext}`,
+          mimeType: res.headers.get('Content-Type') || (ext === 'jpg' ? 'image/jpeg' : 'image/png'),
+        };
         const url = URL.createObjectURL(blob);
         _showPreviews([{ url, label: 'Página 1', ext }]);
+        updateShareButtonVisibility();
         setStatus('generate-status', 'Pronto. Use o botão abaixo para baixar.', 'success');
       } catch (e) {
         setStatus('generate-status', e.message || 'Erro ao gerar imagem.', 'error');
@@ -237,6 +407,11 @@
         const res = await fetch(API + '/api/generate-all', { method: 'POST', headers, body });
         if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || res.statusText); }
         const zipBlob = await res.blob();
+        lastDownload = {
+          blob: zipBlob,
+          filename: `${currentBaseFilename}.zip`,
+          mimeType: 'application/zip',
+        };
         const zipUrl = URL.createObjectURL(zipBlob);
 
         // Usa JSZip para extrair as imagens do ZIP e mostrar prévia
@@ -258,6 +433,7 @@
           previews = [];
         }
         _showPreviews(previews, zipUrl, `monitoramento_cards.zip`);
+        updateShareButtonVisibility();
         setStatus('generate-status', `${totalPages} páginas geradas. Baixe o ZIP com todas.`, 'success');
       } catch (e) {
         setStatus('generate-status', e.message || 'Erro ao gerar imagens.', 'error');
@@ -287,12 +463,25 @@
       imgWrap.appendChild(img);
       const dlBtn = document.createElement('a');
       dlBtn.href = p.url;
-      dlBtn.download = `monitoramento_p${i + 1}.${p.ext}`;
+      dlBtn.download = `${currentBaseFilename}_p${i + 1}.${p.ext}`;
       dlBtn.className = 'btn btn-download-secondary';
       dlBtn.textContent = `Baixar página ${i + 1}`;
+
       wrap.appendChild(label);
       wrap.appendChild(imgWrap);
       wrap.appendChild(dlBtn);
+
+      // Para PNG/JPG, adiciona botão de enviar por WhatsApp ao lado do botão de download
+      if (p.ext === 'png' || p.ext === 'jpg') {
+        const waBtn = document.createElement('button');
+        waBtn.type = 'button';
+        waBtn.className = 'btn btn-download-secondary';
+        waBtn.textContent = 'Enviar por WhatsApp';
+        waBtn.addEventListener('click', () => {
+          shareImageViaWhatsApp(p.url, p.ext, i + 1);
+        });
+        wrap.appendChild(waBtn);
+      }
       container.appendChild(wrap);
     });
 
@@ -301,7 +490,7 @@
       const zipBtn = el('btn-download-zip');
       if (zipUrl && zipBtn) {
         zipBtn.href = zipUrl;
-        zipBtn.download = zipName || 'monitoramento_cards.zip';
+        zipBtn.download = zipName || `${currentBaseFilename}.zip`;
         zipBtn.style.display = 'inline-flex';
       } else if (zipBtn) {
         zipBtn.style.display = 'none';
@@ -324,23 +513,43 @@
     if (btnSelectAll) btnSelectAll.addEventListener('click', () => selectAllGerencia(true));
     if (btnClearAll) btnClearAll.addEventListener('click', () => selectAllGerencia(false));
 
-    const fonteSelect = el('fonte-gerencia');
     const urlInput = el('sheet-url');
     const gidInput = el('sheet-gid');
-    if (fonteSelect) {
-      fonteSelect.addEventListener('change', () => {
-        const cfg = PRESET_SHEETS[fonteSelect.value];
-        if (cfg) {
-          if (urlInput) { urlInput.value = cfg.url; urlInput.readOnly = true; }
-          if (gidInput) { gidInput.value = cfg.gid; gidInput.readOnly = true; }
-        } else {
-          if (urlInput) { urlInput.value = ''; urlInput.readOnly = false; }
-          if (gidInput) { gidInput.value = '0'; gidInput.readOnly = false; }
-        }
+    // Preenche e trava os campos com a planilha geral padrão
+    if (urlInput) {
+      urlInput.value = DEFAULT_SHEET_URL;
+      urlInput.readOnly = true;
+    }
+    if (gidInput) {
+      gidInput.value = DEFAULT_GID;
+      gidInput.readOnly = true;
+    }
+
+    // Carrega a lista de gerências/bacias para o menu suspenso informativo
+    loadFontes();
+
+    const btnShare = el('btn-share-whatsapp');
+    if (btnShare) {
+      btnShare.addEventListener('click', () => {
+        shareViaWhatsApp();
       });
     }
 
-    loadFontes();
+    const topbarToggle = el('topbar-menu-toggle');
+    const topbarNav = el('topbar-nav');
+    if (topbarToggle && topbarNav) {
+      topbarToggle.addEventListener('click', () => {
+        const isOpen = topbarNav.classList.toggle('open');
+        topbarToggle.classList.toggle('open', isOpen);
+      });
+      // Fecha o menu ao clicar em qualquer link
+      topbarNav.querySelectorAll('a').forEach((link) => {
+        link.addEventListener('click', () => {
+          topbarNav.classList.remove('open');
+          topbarToggle.classList.remove('open');
+        });
+      });
+    }
   }
 
   async function loadFontes() {
@@ -354,16 +563,15 @@
       }
       const json = await res.json();
       const fontes = json.fontes || [];
-      PRESET_SHEETS = {};
-      fontes.forEach((f) => { PRESET_SHEETS[f.gerencia] = { url: f.url, gid: f.gid }; });
 
       fonteSelect.innerHTML = fontes.length
-        ? '<option value="">Selecione uma gerência...</option>'
-        : '<option value="">Nenhuma gerência (informe o link abaixo)</option>';
+        ? '<option value="">Todas as gerências / bacias</option>'
+        : '<option value="">Nenhuma gerência encontrada</option>';
+
       fontes.forEach((f) => {
         const label = f.bacia ? `${f.gerencia} — ${f.bacia}` : f.gerencia;
         const opt = document.createElement('option');
-        opt.value = f.gerencia;
+        opt.value = label; // mesmo formato usado em buildGerenciaBaciaKey
         opt.textContent = label;
         fonteSelect.appendChild(opt);
       });

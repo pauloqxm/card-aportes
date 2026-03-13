@@ -10,11 +10,29 @@
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet">
 </head>
 <body>
-  <div class="app">
+  <div class="app" id="top">
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="topbar-brand">
+          <img src="/static/logo_cogerh.png" alt="COGERH" class="topbar-logo">
+          <span class="topbar-title">Card Reservatórios</span>
+        </div>
+        <button type="button" id="topbar-menu-toggle" class="topbar-menu-toggle" aria-label="Abrir menu">
+          <span></span>
+          <span></span>
+        </button>
+        <nav class="topbar-nav" id="topbar-nav">
+          <a href="#top" class="topbar-link">Início</a>
+          <a href="https://www.hidro.ce.gov.br/" target="_blank" rel="noopener noreferrer" class="topbar-link">Hidro</a>
+          <a href="https://www.cogerh.com.br/" target="_blank" rel="noopener noreferrer" class="topbar-link">COGERH</a>
+        </nav>
+      </div>
+    </header>
+
     <header class="header">
       <img src="/static/logo_cogerh.png" alt="COGERH" class="logo-img" style="max-width: 160px; height: auto; display: block; margin: 0 auto 0.75rem;">
       <h1>Gerador de Card — Monitoramento de Reservatórios</h1>
-      <p class="tagline">Use Google Sheets ou envie um CSV. Gere o card em PNG ou JPG.</p>
+      <p class="tagline">Use Google Sheets ou envie um CSV. Gere o card em PNG, JPG ou PDF.</p>
     </header>
 
     <main class="main">
@@ -27,8 +45,10 @@
 
         <div id="panel-sheets" class="panel active">
           <div class="fonte-gerencia-box">
-            <label for="fonte-gerencia" class="fonte-gerencia-label">Gerência</label>
-            <p class="fonte-gerencia-hint">Escolha para preencher automaticamente o link e o GID da planilha.</p>
+            <label for="fonte-gerencia" class="fonte-gerencia-label">Gerência / Bacia</label>
+            <p class="fonte-gerencia-hint">
+              Selecione uma combinação GERÊNCIA + BACIA para referência. A planilha geral consolidada já está fixa como fonte de dados.
+            </p>
             <select id="fonte-gerencia" class="fonte-gerencia-select">
               <option value="">Carregando gerências...</option>
             </select>
@@ -57,7 +77,6 @@
             <label for="mode">Formato</label>
             <select id="mode">
               <option value="Feed (1080x1350)">Feed (1080×1350)</option>
-              <option value="Stories (1080x1920)">Stories (1080×1920)</option>
             </select>
           </div>
           <div class="field">
@@ -74,6 +93,7 @@
             <select id="formato">
               <option value="PNG">PNG</option>
               <option value="JPG">JPG</option>
+              <option value="PDF">PDF</option>
             </select>
           </div>
           <div class="field checkbox-field">
@@ -86,8 +106,8 @@
       </section>
 
       <section class="card filtro-gerencia" id="section-filter-gerencia" hidden>
-        <h2>Filtro por GERÊNCIA</h2>
-        <p class="filtro-desc">Selecione as gerências para incluir no card. Nenhuma seleção = todas.</p>
+        <h2>Filtro por GERÊNCIA + BACIA</h2>
+        <p class="filtro-desc">Selecione as combinações GERÊNCIA + BACIA para incluir no card. Nenhuma seleção = todas.</p>
         <div class="filtro-actions">
           <button type="button" id="btn-select-all-gerencia" class="btn btn-small">Selecionar todas</button>
           <button type="button" id="btn-clear-all-gerencia" class="btn btn-small">Desmarcar todas</button>
@@ -117,6 +137,7 @@
         <div id="preview-actions" class="preview-actions" style="display:none;">
           <a id="btn-download-zip" class="btn btn-download" download="monitoramento_cards.zip">Baixar todas (ZIP)</a>
           <a id="btn-download-single" class="btn btn-download-secondary" download style="display:none;">Baixar página 1</a>
+          <button type="button" id="btn-share-whatsapp" class="btn btn-download-secondary" style="display:none;">Enviar por WhatsApp</button>
         </div>
       </section>
     </main>
