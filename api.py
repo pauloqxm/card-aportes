@@ -15,22 +15,9 @@ from pydantic import BaseModel
 _BASE = Path(__file__).resolve().parent
 
 # --------------- Fontes de gerências ---------------
-# Dados embutidos no código para garantir disponibilidade no Railway.
-# Para adicionar novas gerências, inclua um novo dict nesta lista.
-_FONTES_BUILTIN = [
-    {
-        "gerencia": "GRMBJAGUA",
-        "bacia": "MÉDIO E BAIXO JAGUARIBE",
-        "url": "https://docs.google.com/spreadsheets/d/1fbaYqjee8h4dAA8ew0RXbHOKdnSDoHIB2xPpdveYMDU",
-        "gid": "1527901614",
-    },
-    {
-        "gerencia": "GRBANABUIU",
-        "bacia": "BANABUIÚ",
-        "url": "https://docs.google.com/spreadsheets/d/1fbaYqjee8h4dAA8ew0RXbHOKdnSDoHIB2xPpdveYMDU",
-        "gid": "0",
-    },
-]
+# Planilha geral consolidada (nova estrutura GERAL_BASE_CARD - geral).
+_GERAL_SHEET_URL = "https://docs.google.com/spreadsheets/d/15RrQ7ccfZITr2VslQGi1yglLLabKMVFTv5mUepjcW7g"
+_GERAL_SHEET_GID = "0"
 
 def _load_fontes_csv() -> list:
     """Tenta carregar do CSV local (sobrescreve o builtin se existir)."""
@@ -54,6 +41,50 @@ def _load_fontes_csv() -> list:
             except Exception:
                 pass
     return []
+
+
+def _load_fontes_from_geral_sheet() -> list:
+    """Lê a planilha geral do Google Sheets e retorna combinações únicas GERÊNCIA + BACIA."""
+    try:
+        csv_url = sheets_to_csv_url(_GERAL_SHEET_URL, gid=_GERAL_SHEET_GID)
+        if not csv_url:
+            return []
+        df = load_data_from_sheets(csv_url)
+    except Exception:
+        return []
+
+    if df is None or df.empty:
+        return []
+
+    # Tenta localizar colunas GERÊNCIA / GERENCIA e BACIA
+    cols = {str(c).strip().upper(): c for c in df.columns}
+    c_ger = cols.get("GERÊNCIA") or cols.get("GERENCIA")
+    c_bacia = cols.get("BACIA")
+    if not c_ger:
+        return []
+
+    seen = set()
+    fontes: list[dict] = []
+    for _, row in df.iterrows():
+        ger = str(row.get(c_ger, "") or "").strip()
+        bac = str(row.get(c_bacia, "") or "").strip() if c_bacia else ""
+        if not ger:
+            continue
+        key = (ger, bac)
+        if key in seen:
+            continue
+        seen.add(key)
+        fontes.append(
+            {
+                "gerencia": ger,
+                "bacia": bac,
+                # URL/GID não são usados mais para carregar dados, mas mantemos campos por compatibilidade.
+                "url": "",
+                "gid": "",
+            }
+        )
+
+    return sorted(fontes, key=lambda x: (x["gerencia"], x["bacia"]))
 
 from engine import (
     df_to_json_safe,
@@ -90,8 +121,13 @@ class GenerateRequest(BaseModel):
 # --------------- Endpoints ---------------
 @router.get("/api/fontes")
 async def api_fontes():
-    """Retorna a lista de gerências. Usa CSV local se disponível; senão usa dados embutidos."""
-    fontes = _load_fontes_csv() or _FONTES_BUILTIN
+    """Retorna a lista de gerências/bacias para o menu suspenso.
+
+    Ordem de prioridade:
+    1. Planilha geral no Google Sheets (nova estrutura)
+    2. CSV local "Fonde de dados.csv" (legado)
+    """
+    fontes = _load_fontes_from_geral_sheet() or _load_fontes_csv()
     return {"fontes": fontes}
 
 
@@ -143,8 +179,9 @@ async def api_csv_process(file: UploadFile = File(...)):
 
 @router.post("/api/generate")
 async def api_generate(body: GenerateRequest):
-    """Gera a imagem do card a partir dos dados processados."""
+    """Gera imagem única ou PDF (uma ou mais páginas A4) a partir dos dados processados."""
     import pandas as pd
+    from PIL import Image
 
     if not body.data:
         raise HTTPException(status_code=422, detail="Nenhum dado para gerar o card.")
@@ -155,6 +192,80 @@ async def api_generate(body: GenerateRequest):
     periodo = body.info.get("periodo", {})
     date_anterior = periodo.get("anterior", "")
     date_atual = periodo.get("atual", "")
+
+    fmt_req = (body.formato or "PNG").upper()
+
+    # Se PDF, gera todas as páginas necessárias e empacota em folhas A4 (até 2 por folha).
+    if fmt_req == "PDF":
+        try:
+            pages = generate_pages(
+                df_all=df,
+                mode=body.mode,
+                date_anterior=date_anterior,
+                date_atual=date_atual,
+                ordenar=body.ordenar,
+                formato="PNG",  # base interna em imagem
+                convert_raw_m3_to_millions=body.convert_raw_m3_to_millions,
+            )
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Erro ao gerar páginas: {str(e)}")
+
+        if not pages:
+            raise HTTPException(status_code=500, detail="Nenhuma página gerada para o PDF.")
+
+        # A4 em pixels (300 DPI aprox.): 2480 x 3508 (retrato)
+        A4_W, A4_H = 2480, 3508
+        margin = 80
+        pdf_pages: list[Image.Image] = []
+
+        i = 0
+        while i < len(pages):
+            group = pages[i : i + 2]
+            sheet = Image.new("RGB", (A4_W, A4_H), (255, 255, 255))
+
+            if len(group) == 1:
+                img = group[0].convert("RGB")
+                w, h = img.size
+                scale = min((A4_W - 2 * margin) / w, (A4_H - 2 * margin) / h)
+                new_size = (int(w * scale), int(h * scale))
+                img_resized = img.resize(new_size, Image.LANCZOS)
+                x = (A4_W - new_size[0]) // 2
+                y = (A4_H - new_size[1]) // 2
+                sheet.paste(img_resized, (x, y))
+            else:
+                top, bottom = [p.convert("RGB") for p in group]
+                avail_h_each = (A4_H - 3 * margin) // 2
+
+                def _place(img_src: Image.Image, y_top: int):
+                    w, h = img_src.size
+                    scale = min((A4_W - 2 * margin) / w, avail_h_each / h)
+                    new_size = (int(w * scale), int(h * scale))
+                    img_resized = img_src.resize(new_size, Image.LANCZOS)
+                    x = (A4_W - new_size[0]) // 2
+                    y = y_top + (avail_h_each - new_size[1]) // 2
+                    sheet.paste(img_resized, (x, y))
+
+                _place(top, margin)
+                _place(bottom, margin * 2 + avail_h_each)
+
+            pdf_pages.append(sheet)
+            i += 2
+
+        pdf_buf = BytesIO()
+        pdf_pages[0].save(
+            pdf_buf,
+            format="PDF",
+            save_all=True,
+            append_images=pdf_pages[1:],
+        )
+        pdf_buf.seek(0)
+        return Response(
+            content=pdf_buf.getvalue(),
+            media_type="application/pdf",
+            headers={"Content-Disposition": 'attachment; filename="monitoramento_cards.pdf"'},
+        )
+
+    # PNG / JPG (comportamento original)
     try:
         img = generate_image(
             df_all=df,
@@ -167,8 +278,9 @@ async def api_generate(body: GenerateRequest):
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao gerar imagem: {str(e)}")
+
     buf = BytesIO()
-    fmt = "JPEG" if body.formato.upper() == "JPG" else "PNG"
+    fmt = "JPEG" if fmt_req == "JPG" else "PNG"
     if fmt == "JPEG":
         img.save(buf, format=fmt, quality=95, optimize=True)
         media_type = "image/jpeg"
@@ -181,10 +293,15 @@ async def api_generate(body: GenerateRequest):
 
 @router.post("/api/generate-all")
 async def api_generate_all(body: GenerateRequest):
-    """Gera todas as páginas e retorna um ZIP com cada imagem nomeada p1, p2, ..."""
+    """Gera todas as páginas.
+
+    - Para PNG/JPG: retorna um ZIP com cada imagem nomeada p1, p2, ...
+    - Para PDF: retorna um único PDF com folhas A4; até 2 páginas por folha.
+    """
     import io
     import zipfile
     import pandas as pd
+    from PIL import Image
 
     if not body.data:
         raise HTTPException(status_code=422, detail="Nenhum dado para gerar o card.")
@@ -208,7 +325,65 @@ async def api_generate_all(body: GenerateRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao gerar imagens: {str(e)}")
 
-    fmt = "JPEG" if body.formato.upper() == "JPG" else "PNG"
+    fmt_req = (body.formato or "PNG").upper()
+
+    if fmt_req == "PDF":
+        if not pages:
+            raise HTTPException(status_code=500, detail="Nenhuma página gerada para o PDF.")
+
+        A4_W, A4_H = 2480, 3508
+        margin = 80
+        pdf_pages: list[Image.Image] = []
+
+        i = 0
+        while i < len(pages):
+            group = pages[i : i + 2]
+            sheet = Image.new("RGB", (A4_W, A4_H), (255, 255, 255))
+
+            if len(group) == 1:
+                img = group[0].convert("RGB")
+                w, h = img.size
+                scale = min((A4_W - 2 * margin) / w, (A4_H - 2 * margin) / h)
+                new_size = (int(w * scale), int(h * scale))
+                img_resized = img.resize(new_size, Image.LANCZOS)
+                x = (A4_W - new_size[0]) // 2
+                y = (A4_H - new_size[1]) // 2
+                sheet.paste(img_resized, (x, y))
+            else:
+                top, bottom = [p.convert("RGB") for p in group]
+                avail_h_each = (A4_H - 3 * margin) // 2
+
+                def _place(img_src: Image.Image, y_top: int):
+                    w, h = img_src.size
+                    scale = min((A4_W - 2 * margin) / w, avail_h_each / h)
+                    new_size = (int(w * scale), int(h * scale))
+                    img_resized = img_src.resize(new_size, Image.LANCZOS)
+                    x = (A4_W - new_size[0]) // 2
+                    y = y_top + (avail_h_each - new_size[1]) // 2
+                    sheet.paste(img_resized, (x, y))
+
+                _place(top, margin)
+                _place(bottom, margin * 2 + avail_h_each)
+
+            pdf_pages.append(sheet)
+            i += 2
+
+        pdf_buf = io.BytesIO()
+        pdf_pages[0].save(
+            pdf_buf,
+            format="PDF",
+            save_all=True,
+            append_images=pdf_pages[1:],
+        )
+        pdf_buf.seek(0)
+        return Response(
+            content=pdf_buf.getvalue(),
+            media_type="application/pdf",
+            headers={"Content-Disposition": 'attachment; filename="monitoramento_cards.pdf"'},
+        )
+
+    # PNG / JPG (ZIP de imagens)
+    fmt = "JPEG" if fmt_req == "JPG" else "PNG"
     ext = body.formato.lower()
     zip_buf = io.BytesIO()
     with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -224,7 +399,7 @@ async def api_generate_all(body: GenerateRequest):
     return Response(
         content=zip_buf.getvalue(),
         media_type="application/zip",
-        headers={"Content-Disposition": f"attachment; filename=monitoramento_cards.zip"},
+        headers={"Content-Disposition": f'attachment; filename="monitoramento_cards.zip"'},
     )
 
 

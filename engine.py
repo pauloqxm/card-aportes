@@ -245,7 +245,8 @@ def process_df(df_raw: pd.DataFrame):
 
     c_ger = col("GERÊNCIA")
     c_bacia = col("BACIA")
-    c_acude = col("AÇUDE")
+    # Nome do reservatório / açude (nova planilha usa "RESERVATÓRIO")
+    c_acude = col("AÇUDE") or col("RESERVATÓRIO") or col("RESERVATORIO")
     c_mun = col("MUNICÍPIO") or col("MUNICIPIO")
     c_var_m = col("VARIAÇÃO_M") or col("VARIAÇÃO EM M") or col("VARIACAO EM M")
     c_var_m3 = col("VARIAÇÃO_M³") or col("VARIAÇÃO EM M³") or col("VARIACAO EM M3") or col("VARIAÇÃO_M3")
