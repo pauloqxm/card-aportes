@@ -19,6 +19,9 @@ _BASE = Path(__file__).resolve().parent
 _GERAL_SHEET_URL = "https://docs.google.com/spreadsheets/d/15RrQ7ccfZITr2VslQGi1yglLLabKMVFTv5mUepjcW7g"
 _GERAL_SHEET_GID = "0"
 
+# --------------- Caminhos auxiliares ---------------
+_CAV_CSV_PATH = _BASE / "cav.csv"
+
 def _load_fontes_csv() -> list:
     """Tenta carregar do CSV local (sobrescreve o builtin se existir)."""
     for candidate in [
@@ -86,6 +89,20 @@ def _load_fontes_from_geral_sheet() -> list:
 
     return sorted(fontes, key=lambda x: (x["gerencia"], x["bacia"]))
 
+
+def _load_cav_df():
+    """Carrega o cav.csv em um DataFrame (ou None se indisponível)."""
+    import pandas as pd
+
+    if not _CAV_CSV_PATH.is_file():
+        return None
+    try:
+        df = pd.read_csv(_CAV_CSV_PATH, sep=",", dtype=str, encoding="utf-8")
+        df.columns = [str(c).strip() for c in df.columns]
+        return df
+    except Exception:
+        return None
+
 from engine import (
     df_to_json_safe,
     generate_image,
@@ -116,6 +133,13 @@ class GenerateRequest(BaseModel):
     ordenar: str = "Manter ordem"
     formato: str = "PNG"
     convert_raw_m3_to_millions: bool = True
+
+
+class CavLookupRequest(BaseModel):
+    bacia: str
+    reservatorio: str
+    barrote: int
+    leitura: int
 
 
 # --------------- Endpoints ---------------
@@ -175,6 +199,110 @@ async def api_csv_process(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Erro ao processar dados: {str(e)}")
     return {"data": df_to_json_safe(df_proc), "info": info}
+
+
+@router.get("/api/cav/meta")
+async def api_cav_meta():
+    """Retorna lista de bacias e reservatórios disponíveis no cav.csv."""
+    import pandas as pd
+
+    df = _load_cav_df()
+    if df is None or df.empty:
+        raise HTTPException(status_code=404, detail="Arquivo cav.csv não encontrado ou vazio.")
+
+    col_res = None
+    for c in df.columns:
+        if str(c).strip().lower() in ("reservatório", "reservatorio"):
+            col_res = c
+            break
+    col_bacia = "bacia" if "bacia" in df.columns else None
+    if not col_res or not col_bacia:
+        raise HTTPException(status_code=500, detail="Colunas 'Reservatório' e 'bacia' não encontradas em cav.csv.")
+
+    df_meta = df[[col_res, col_bacia]].dropna()
+    df_meta[col_res] = df_meta[col_res].astype(str).str.strip()
+    df_meta[col_bacia] = df_meta[col_bacia].astype(str).str.strip()
+
+    result = []
+    for bacia, group in df_meta.groupby(col_bacia):
+        reservatorios = (
+            group[col_res]
+            .dropna()
+            .astype(str)
+            .str.strip()
+            .drop_duplicates()
+            .sort_values()
+            .tolist()
+        )
+        result.append({"bacia": bacia, "reservatorios": reservatorios})
+
+    result = sorted(result, key=lambda x: x["bacia"])
+    return {"bacias": result}
+
+
+@router.post("/api/cav/lookup")
+async def api_cav_lookup(body: CavLookupRequest):
+    """Busca a cota/área/volume para um reservatório a partir de barrote + leitura."""
+    import pandas as pd
+
+    df = _load_cav_df()
+    if df is None or df.empty:
+        raise HTTPException(status_code=404, detail="Arquivo cav.csv não encontrado ou vazio.")
+
+    col_res = None
+    for c in df.columns:
+        if str(c).strip().lower() in ("reservatório", "reservatorio"):
+            col_res = c
+            break
+    col_bacia = "bacia" if "bacia" in df.columns else None
+    if not col_res or not col_bacia:
+        raise HTTPException(status_code=500, detail="Colunas 'Reservatório' e 'bacia' não encontradas em cav.csv.")
+
+    bacia = (body.bacia or "").strip()
+    reserv = (body.reservatorio or "").strip()
+
+    if not bacia or not reserv:
+        raise HTTPException(status_code=400, detail="Bacia e Reservatório são obrigatórios.")
+
+    barrote_str = str(body.barrote).strip()
+    leitura_str = str(body.leitura).strip()
+
+    col_barrote = None
+    col_leitura = None
+    for c in df.columns:
+        cl = str(c).strip().lower()
+        if cl == "barrote":
+            col_barrote = c
+        elif cl == "leitura":
+            col_leitura = c
+    if not col_barrote or not col_leitura:
+        raise HTTPException(status_code=500, detail="Colunas 'barrote' e 'leitura' não encontradas em cav.csv.")
+
+    mask = (
+        (df[col_bacia].astype(str).str.strip().str.lower() == bacia.lower())
+        & (df[col_res].astype(str).str.strip().str.lower() == reserv.lower())
+        & (df[col_barrote].astype(str).str.strip() == barrote_str)
+        & (df[col_leitura].astype(str).str.strip() == leitura_str)
+    )
+
+    match = df[mask]
+    if match.empty:
+        raise HTTPException(status_code=404, detail="Combinação não encontrada no cav.csv.")
+
+    row = match.iloc[0]
+    cota = str(row.get("cota", "")).strip()
+    area = str(row.get("area_km2", "")).strip()
+    volume = str(row.get("volume_m3", "")).strip()
+
+    return {
+        "bacia": bacia,
+        "reservatorio": reserv,
+        "barrote": barrote_str,
+        "leitura": leitura_str,
+        "cota": cota,
+        "area_km2": area,
+        "volume_m3": volume,
+    }
 
 
 @router.post("/api/generate")
