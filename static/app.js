@@ -10,6 +10,16 @@
   let currentBaseFilename = 'monitoramento'; // base para nomes de arquivos (gerência + data/hora)
 
   const el = (id) => document.getElementById(id);
+
+  /** Exibe apenas a primeira metade do link da planilha; o resto fica oculto. */
+  function maskSheetUrl(url) {
+    if (!url || typeof url !== 'string') return '';
+    const s = url.trim();
+    if (s.length <= 8) return s;
+    const half = Math.max(1, Math.floor(s.length / 2));
+    return s.slice(0, half) + ' …';
+  }
+
   const setStatus = (id, text, className = '') => {
     const node = el(id);
     if (!node) return;
@@ -227,10 +237,11 @@
   }
 
   async function loadSheets() {
-    // Usa por padrão a planilha geral fixa; campos permitem override manual se necessário.
+    // Usa link completo (data-full-url quando existe) para não depender do valor mascarado exibido.
     const urlEl = el('sheet-url');
     const gidEl = el('sheet-gid');
-    const sheetUrl = (urlEl && urlEl.value.trim()) || DEFAULT_SHEET_URL;
+    const fullUrl = urlEl && urlEl.getAttribute('data-full-url');
+    const sheetUrl = (fullUrl && fullUrl.trim()) || (urlEl && urlEl.value.trim()) || DEFAULT_SHEET_URL;
     const gid = (gidEl && gidEl.value.trim()) || DEFAULT_GID;
 
     if (!sheetUrl) {
@@ -515,9 +526,10 @@
 
     const urlInput = el('sheet-url');
     const gidInput = el('sheet-gid');
-    // Preenche e trava os campos com a planilha geral padrão
+    // Planilha geral padrão: guarda o link completo e exibe 50% oculto
     if (urlInput) {
-      urlInput.value = DEFAULT_SHEET_URL;
+      urlInput.setAttribute('data-full-url', DEFAULT_SHEET_URL);
+      urlInput.value = maskSheetUrl(DEFAULT_SHEET_URL);
       urlInput.readOnly = true;
     }
     if (gidInput) {
