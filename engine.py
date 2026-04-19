@@ -379,8 +379,19 @@ def draw_global_kpis_and_pie(draw, x, y, w, h, df_all: pd.DataFrame,
     Layout:  col1 (Capacidade + Volume Atual) | col2 (Evolução no Período) | col3 (Percentual Atual)
     """
     cap_total  = max(0.0, _safe_sum(df_all.get("capacidade_m3")))
-    vol_total  = max(0.0, _safe_sum(df_all.get("volume_atual_m3")))
     aporte_total = _safe_sum(df_all.get("variacao_m3"))
+
+    # Volume para exibição no KPI "Volume Atual" (soma bruta, sem cap)
+    vol_total  = max(0.0, _safe_sum(df_all.get("volume_atual_m3")))
+
+    # Volume para o cálculo do percentual: cada reservatório limitado à sua capacidade,
+    # evitando que reservatórios acima de 100% inflem o percentual global da bacia.
+    try:
+        cap_s = pd.to_numeric(df_all.get("capacidade_m3"), errors="coerce").fillna(0.0)
+        vol_s = pd.to_numeric(df_all.get("volume_atual_m3"), errors="coerce").fillna(0.0)
+        vol_capped_total = float(vol_s.clip(upper=cap_s).sum())
+    except Exception:
+        vol_capped_total = vol_total
 
     # Paleta do projeto
     C_SKY    = (56,  189, 248, 255)   # --accent
@@ -456,7 +467,7 @@ def draw_global_kpis_and_pie(draw, x, y, w, h, df_all: pd.DataFrame,
               norm_txt("PERCENTUAL ATUAL"), fill=C_TITLE, font=f_lbl3)
 
     if cap_total > 0:
-        filled = min(vol_total, cap_total)
+        filled = min(vol_capped_total, cap_total)
         pct_preench = 100.0 * (filled / cap_total)
 
         margin  = 18
@@ -475,7 +486,7 @@ def draw_global_kpis_and_pie(draw, x, y, w, h, df_all: pd.DataFrame,
         draw.ellipse([cx_d - r_out, cy_d - r_out, cx_d + r_out, cy_d + r_out],
                      fill=C_RING_EMPTY, outline=None)
 
-        # arco preenchido (situação atual)
+        # arco preenchido (situação atual — usa vol_capped_total para não ultrapassar 100%)
         if filled > 0:
             draw.pieslice([cx_d - r_out, cy_d - r_out, cx_d + r_out, cy_d + r_out],
                           start=-90.0, end=-90.0 + 360.0 * (filled / cap_total),
@@ -718,6 +729,14 @@ def _render_page(df_all: pd.DataFrame, ordered_slice: pd.DataFrame, mode: str,
         muni_text = ellipsize_text(draw, f"Município: {municipio}", f_mun, card_w - 28)
         y_mun = y + 10 + f_name.size + 2
         draw.text((x + 14, y_mun), muni_text, fill=(100, 116, 139, 255), font=f_mun)
+        # Lâmina de sangria = valor absoluto de falta_sangrar quando negativo (vertendo)
+        def _lamina_txt() -> str:
+            try:
+                v = float(falta_sangrar)
+                return fmt_m_2dp_dot(abs(v))
+            except Exception:
+                return "N/A"
+
         f_var = get_font(f_var_base, True)
         arrow_x, arrow_y = x + 14, y + (58 if big else 54)
         if is_vertendo:
@@ -731,7 +750,7 @@ def _render_page(df_all: pd.DataFrame, ordered_slice: pd.DataFrame, mode: str,
             draw.text((x + 44, arrow_y - 2), norm_txt(var_txt), fill=tx, font=f_var)
         f_line = get_font(f_line_base, False)
         l1 = f"Variação m³: {fmt_milhoes_br(var_m3, convert_raw_m3_to_millions)}"
-        l2 = "Falta p/ sangrar: Vertendo" if is_vertendo else f"Falta p/ sangrar: {fmt_m_2dp_dot(falta_sangrar)}"
+        l2 = f"Vertendo / Lâmina: {_lamina_txt()}" if is_vertendo else f"Falta p/ sangrar: {fmt_m_2dp_dot(falta_sangrar)}"
         l3 = f"Vol. atual: {fmt_milhoes_br(vol, convert_raw_m3_to_millions)}"
         draw.text((x + 14, y + (86 if big else 78)), norm_txt(l1), fill=(51, 65, 85, 255), font=f_line)
         draw.text((x + 14, y + (108 if big else 98)), norm_txt(l2), fill=(51, 65, 85, 255), font=f_line)
